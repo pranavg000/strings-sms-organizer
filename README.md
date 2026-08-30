@@ -6,11 +6,17 @@ Strings reads and organizes the messages already on your phone. It never sends m
 
 ## Install
 
-Download the latest APK from the [Releases page](https://github.com/pranavg000/strings-sms-organizer/releases/latest) and open it on your phone. Android will ask you to allow installs from your browser or file manager ("Install unknown apps") the first time.
+Download the latest APK from the [Releases page](https://github.com/pranavg000/strings-sms-organizer/releases/latest) and open it on your phone. Requires Android 15+.
 
-For automatic updates, add this repo to [Obtainium](https://github.com/ImranR98/Obtainium) -- it installs and updates apps directly from GitHub Releases.
+Because Strings is sideloaded and reads SMS, Android puts two deliberate speed bumps in the way. Both are expected -- here is the full walkthrough:
 
-Strings is not on the Play Store: Google only permits SMS permissions for an app acting as the default SMS handler, and Strings is deliberately read-only. Requires Android 15+.
+1. **"Install unknown apps"** -- the first time, Android asks you to allow installs from your browser or file manager. Allow it and continue.
+2. **Play Protect warning** -- Google warns about APKs it hasn't seen widely before, and it is extra suspicious of anything requesting SMS access (that's what SMS-stealer malware requests). Tap "More details" > "Install anyway". You can verify what you're installing: the APK is built from exactly the source in this repo.
+3. **Grant SMS access via restricted settings** -- on Android 15+, a sideloaded app cannot be granted SMS permissions until you deliberately unlock them ([this is system policy](https://source.android.com/docs/compatibility/15/android-15-cdd#98_restricted_settings) for all sideloaded apps, not something Strings controls). When Strings asks for SMS access and the grant is blocked: open **Settings > Apps > Strings**, tap the **three-dot menu** (top right), choose **Allow restricted settings**, authenticate, then grant SMS access normally.
+
+All releases are signed with the same certificate, so updates install cleanly over the previous version. For automatic updates, add this repo to [Obtainium](https://github.com/ImranR98/Obtainium) -- it installs and updates apps directly from GitHub Releases.
+
+Strings is not on the Play Store: Google only permits SMS permissions for an app acting as the default SMS handler, and Strings is deliberately read-only.
 
 ## Features
 
