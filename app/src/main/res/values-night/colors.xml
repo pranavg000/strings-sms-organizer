@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="notification_debit">#EF5350</color>
+    <color name="notification_credit">#66BB6A</color>
+    <color name="notification_otp_digit_border">#AAAAAA</color>
+    <color name="notification_otp_digit_bg">#1AFFFFFF</color>
+</resources>

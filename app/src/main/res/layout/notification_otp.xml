@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+
+    <LinearLayout
+        android:id="@+id/otp_digits_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView android:id="@+id/otp_d0" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d1" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d2" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d3" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d4" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d5" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d6" style="@style/OtpDigitSmall" />
+        <TextView android:id="@+id/otp_d7" style="@style/OtpDigitSmall" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/otp_label"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="8dp"
+        android:textAlignment="textEnd"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="13sp"
+        style="@style/TextAppearance.Compat.Notification" />
+</LinearLayout>

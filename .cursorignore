@@ -1,0 +1,25 @@
+# Android/Gradle Build Files
+.gradle/
+build/
+**/build/
+**/release/
+**/debug/
+
+# Local properties
+local.properties
+
+# IDE Configurations
+.idea/
+.settings/
+*.iml
+
+# Archives & Packages
+*.apk
+*.aab
+*.zip
+
+# Generated Source & Class Files
+*.class
+*.dex
+*Generated.java
+**/generated/

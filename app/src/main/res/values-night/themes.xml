@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Framework Theme.Material has no DayNight variant, so night mode is
+         handled by overriding the theme here with the dark parent. Keeps the
+         pre-Compose window background from flashing light in dark mode. -->
+    <style name="Theme.Strings" parent="android:Theme.Material.NoActionBar" />
+</resources>
