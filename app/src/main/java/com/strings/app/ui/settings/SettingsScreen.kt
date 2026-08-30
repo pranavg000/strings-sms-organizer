@@ -1,5 +1,6 @@
 package com.strings.app.ui.settings
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.strings.app.data.prefs.ThemeMode
 import com.strings.app.ui.backup.BackupViewModel
@@ -68,6 +71,8 @@ private val THEME_OPTIONS: List<Pair<ThemeMode, String>> = listOf(
     ThemeMode.LIGHT to "Light",
     ThemeMode.DARK to "Dark"
 )
+
+private const val RELEASES_URL: String = "https://github.com/pranavg000/strings-sms-organizer/releases/latest"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -356,6 +361,19 @@ fun SettingsScreen(
                     )
                 }
             }
+            SettingsSectionLabel(text = "About")
+            val versionName: String = remember {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
+            }
+            SettingsActionCard(
+                title = "Check for updates",
+                supportingText = "Installed version $versionName. Opens the releases page in your " +
+                    "browser -- Strings itself has no internet access.",
+                icon = Icons.Default.SystemUpdate,
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, RELEASES_URL.toUri()))
+                }
+            )
         }
     }
     if (showClearFinanceConfirm) {
