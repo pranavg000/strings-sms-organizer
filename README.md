@@ -4,6 +4,14 @@ A read-only SMS organizer for Android. Gmail-style tags and filters for your SMS
 
 Strings reads and organizes the messages already on your phone. It never sends messages, never uploads anything, and works entirely offline. Archiving, tagging, or trashing a message in Strings changes nothing in your default messaging app.
 
+## Install
+
+Download the latest APK from the [Releases page](https://github.com/pranavg000/strings-sms-organizer/releases/latest) and open it on your phone. Android will ask you to allow installs from your browser or file manager ("Install unknown apps") the first time.
+
+For automatic updates, add this repo to [Obtainium](https://github.com/ImranR98/Obtainium) -- it installs and updates apps directly from GitHub Releases.
+
+Strings is not on the Play Store: Google only permits SMS permissions for an app acting as the default SMS handler, and Strings is deliberately read-only. Requires Android 15+.
+
 ## Features
 
 - **Tags, not folders.** Messages are organized with a hierarchical tag system (e.g. `Finance > HDFC`), like labels in Gmail. A message can carry many tags and appears in every matching inbox tab. Tabs are configurable.
