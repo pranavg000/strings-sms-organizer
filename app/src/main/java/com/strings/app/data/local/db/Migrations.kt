@@ -95,3 +95,10 @@ val MIGRATION_6_7: Migration = object : Migration(6, 7) {
         db.execSQL("ALTER TABLE transactions ADD COLUMN isSentinel INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+// Per-message user override that keeps the categorizer from turning it into a transaction.
+val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE messages ADD COLUMN isTransactionExcluded INTEGER NOT NULL DEFAULT 0")
+    }
+}

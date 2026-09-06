@@ -30,7 +30,8 @@ class ImportDataUseCase(
     private val transactionRepository: TransactionRepository,
     private val backupSettings: BackupSettingsStore,
     private val json: Json,
-    private val recategorizeTransactionsUseCase: RecategorizeTransactionsUseCase
+    private val recategorizeTransactionsUseCase: RecategorizeTransactionsUseCase,
+    private val toggleTransactionUseCase: ToggleTransactionUseCase
 ) {
     private data class MessageStateResult(
         val restored: Int,
@@ -223,8 +224,10 @@ class ImportDataUseCase(
     /**
      * Matches each exported message state to a local message -- by
      * deviceMessageId first (stable on the same device), then by
-     * (sender, timestamp) -- and restores flags, the exact tag set, and any
-     * balance override on the message's re-parsed transaction.
+     * (sender, timestamp) -- and restores flags, the exact tag set, the
+     * "not a transaction" override, and any balance override on the
+     * message's re-parsed transaction. The override is applied after the
+     * tag set so the Finance tags it strips can't be re-added by the restore.
      */
     private suspend fun importMessageStates(
         bundle: BackupBundle,
@@ -259,6 +262,11 @@ class ImportDataUseCase(
             val tagIds: List<Long> = dto.tagNames.mapNotNull { tagIdByName[it] }
             if (tagIds.isNotEmpty()) {
                 messageRepository.replaceTagsForMessage(message.id, tagIds)
+            }
+            if (dto.isTransactionExcluded && !message.isTransactionExcluded) {
+                toggleTransactionUseCase.exclude(message.id)
+            } else if (!dto.isTransactionExcluded && message.isTransactionExcluded) {
+                toggleTransactionUseCase.include(message.id)
             }
             if (dto.balanceAfter != null) {
                 val transaction: Transaction? = transactionRepository.getTransactionForMessage(message.id)

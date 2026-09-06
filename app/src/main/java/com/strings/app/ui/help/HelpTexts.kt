@@ -75,7 +75,10 @@ object HelpTexts {
             "under Manage accounts \u2014 pick the bank and enter the last digits of the " +
             "account or card number, and matching SMS alerts turn into transactions. " +
             "When a reported balance doesn't tally with the transactions seen so far, the gap " +
-            "is kept as an \u201Cunaccounted\u201D entry in the list until you dismiss it."
+            "is kept as an \u201Cunaccounted\u201D entry in the list until you dismiss it. " +
+            "Detection can be corrected per message: choose \u201CNot a transaction\u201D from a " +
+            "ledger row's menu (or the message's menu) to drop a wrong match for good, and " +
+            "\u201CMark as transaction\u201D on a missed message to run detection on it again."
     const val ACCOUNTS_LIST: String =
         "Add each bank account, card, or wallet you want tracked. Transactions are detected " +
             "from that bank's SMS alerts using the last digits you enter here. When a " +

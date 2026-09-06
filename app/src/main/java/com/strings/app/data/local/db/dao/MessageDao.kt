@@ -162,6 +162,9 @@ interface MessageDao {
     @Query("UPDATE messages SET isRead = :isRead WHERE id = :messageId")
     suspend fun setRead(messageId: Long, isRead: Boolean)
 
+    @Query("UPDATE messages SET isTransactionExcluded = :isExcluded WHERE id = :messageId")
+    suspend fun setTransactionExcluded(messageId: Long, isExcluded: Boolean)
+
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun deleteMessage(messageId: Long)
 

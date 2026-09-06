@@ -14,8 +14,11 @@ import com.strings.app.domain.transaction.BalanceDiscrepancy
 import com.strings.app.domain.transaction.ParsedTransaction
 import com.strings.app.domain.transaction.TransactionParser
 import com.strings.app.domain.usecase.CheckBalanceDiscrepancyUseCase
+import com.strings.app.domain.usecase.IncludeTransactionResult
+import com.strings.app.domain.usecase.ToggleTransactionUseCase
 import com.strings.app.notification.SmsNotifier
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,13 +36,21 @@ data class MessageDetailUiState(
     val isLoading: Boolean = true
 )
 
+/** One-shot outcome of the "Not a transaction" / "Mark as transaction" toggle, for UI feedback. */
+enum class TransactionToggleEvent {
+    EXCLUDED,
+    INCLUDED,
+    NOT_RECOGNIZED
+}
+
 class MessageDetailViewModel(
     private val messageRepository: MessageRepository,
     private val tagRepository: TagRepository,
     private val transactionRepository: TransactionRepository,
     private val transactionParser: TransactionParser,
     private val notifier: SmsNotifier,
-    private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase
+    private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase,
+    private val toggleTransactionUseCase: ToggleTransactionUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MessageDetailUiState())
     val uiState: StateFlow<MessageDetailUiState> = _uiState.asStateFlow()
@@ -47,27 +58,59 @@ class MessageDetailViewModel(
     private val _balanceDiscrepancies = MutableSharedFlow<BalanceDiscrepancy>(extraBufferCapacity = 1)
     val balanceDiscrepancies: SharedFlow<BalanceDiscrepancy> = _balanceDiscrepancies.asSharedFlow()
 
+    private val _transactionToggleEvents = MutableSharedFlow<TransactionToggleEvent>(extraBufferCapacity = 1)
+    val transactionToggleEvents: SharedFlow<TransactionToggleEvent> = _transactionToggleEvents.asSharedFlow()
+
     fun loadMessage(messageId: Long) {
         viewModelScope.launch {
-            val messageDeferred = async { messageRepository.getMessageById(messageId) }
-            val allTagsDeferred = async { tagRepository.getAllTagsList() }
-            val transactionDeferred = async { transactionRepository.getTransactionForMessage(messageId) }
-            val message: Message? = messageDeferred.await()
-            val allTags: List<Tag> = allTagsDeferred.await()
-            val transaction: Transaction? = transactionDeferred.await()
-            val assignedTagIds: Set<Long> = message?.tags?.map { it.id }?.toSet() ?: emptySet()
-            val account: Account? = transaction?.let { transactionRepository.getAccountById(it.accountId) }
-            _uiState.value = MessageDetailUiState(
-                message = message,
-                allTags = allTags,
-                assignedTagIds = assignedTagIds,
-                transaction = transaction,
-                account = account,
-                isLoading = false
-            )
+            val state: MessageDetailUiState = fetchState(messageId)
+            _uiState.value = state
+            val message: Message? = state.message
             if (message != null && !message.isRead) {
                 messageRepository.setRead(messageId, true)
             }
+        }
+    }
+
+    private suspend fun fetchState(messageId: Long): MessageDetailUiState = coroutineScope {
+        val messageDeferred = async { messageRepository.getMessageById(messageId) }
+        val allTagsDeferred = async { tagRepository.getAllTagsList() }
+        val transactionDeferred = async { transactionRepository.getTransactionForMessage(messageId) }
+        val message: Message? = messageDeferred.await()
+        val allTags: List<Tag> = allTagsDeferred.await()
+        val transaction: Transaction? = transactionDeferred.await()
+        val assignedTagIds: Set<Long> = message?.tags?.map { it.id }?.toSet() ?: emptySet()
+        val account: Account? = transaction?.let { transactionRepository.getAccountById(it.accountId) }
+        MessageDetailUiState(
+            message = message,
+            allTags = allTags,
+            assignedTagIds = assignedTagIds,
+            transaction = transaction,
+            account = account,
+            isLoading = false
+        )
+    }
+
+    /**
+     * With a transaction present: marks the message "not a transaction" (removes the
+     * transaction + Finance tags, persists the exclusion). Otherwise: clears any exclusion
+     * and re-runs detection, reporting when nothing was recognized. The state is re-read
+     * afterwards so tags, transaction, and account all reflect the outcome.
+     */
+    fun toggleTransaction() {
+        val message: Message = _uiState.value.message ?: return
+        viewModelScope.launch {
+            val event: TransactionToggleEvent = if (_uiState.value.transaction != null) {
+                toggleTransactionUseCase.exclude(message.id)
+                TransactionToggleEvent.EXCLUDED
+            } else {
+                when (toggleTransactionUseCase.include(message.id)) {
+                    IncludeTransactionResult.CATEGORIZED -> TransactionToggleEvent.INCLUDED
+                    IncludeTransactionResult.NOT_RECOGNIZED -> TransactionToggleEvent.NOT_RECOGNIZED
+                }
+            }
+            _uiState.value = fetchState(message.id)
+            _transactionToggleEvents.tryEmit(event)
         }
     }
 

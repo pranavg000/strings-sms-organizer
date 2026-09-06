@@ -9,6 +9,7 @@ import com.strings.app.domain.repository.TransactionRepository
 import com.strings.app.domain.transaction.AccountFamilies
 import com.strings.app.domain.transaction.BalanceDiscrepancy
 import com.strings.app.domain.usecase.CheckBalanceDiscrepancyUseCase
+import com.strings.app.domain.usecase.ToggleTransactionUseCase
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -56,7 +57,8 @@ private fun familySortComparator(): Comparator<AccountBalance> {
 
 class FinanceDashboardViewModel(
     private val transactionRepository: TransactionRepository,
-    private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase
+    private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase,
+    private val toggleTransaction: ToggleTransactionUseCase
 ) : ViewModel() {
 
     private val _currentMonth: MutableStateFlow<YearMonth> = MutableStateFlow(YearMonth.now())
@@ -161,6 +163,16 @@ class FinanceDashboardViewModel(
         viewModelScope.launch {
             transactionRepository.deleteTransactionById(transactionId)
         }
+    }
+
+    /** "Not a transaction" from a ledger row; the Room flows drop the row automatically. */
+    fun excludeTransaction(messageId: Long) {
+        viewModelScope.launch { toggleTransaction.exclude(messageId) }
+    }
+
+    /** Undo for [excludeTransaction]: clears the override and re-runs detection. */
+    fun includeTransaction(messageId: Long) {
+        viewModelScope.launch { toggleTransaction.include(messageId) }
     }
 
     fun previousMonth() {

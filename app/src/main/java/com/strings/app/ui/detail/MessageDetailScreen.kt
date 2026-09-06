@@ -19,8 +19,10 @@ import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MarkunreadMailbox
+import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteForever
@@ -102,6 +104,16 @@ fun MessageDetailScreen(
     LaunchedEffect(Unit) {
         viewModel.balanceDiscrepancies.collect { discrepancy ->
             snackbarHostState.showSnackbar(formatDiscrepancyMessage(discrepancy))
+        }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.transactionToggleEvents.collect { event ->
+            val text: String = when (event) {
+                TransactionToggleEvent.EXCLUDED -> "Marked as not a transaction"
+                TransactionToggleEvent.INCLUDED -> "Transaction detected"
+                TransactionToggleEvent.NOT_RECOGNIZED -> "No transaction detected in this message"
+            }
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         }
     }
     Scaffold(
@@ -200,6 +212,27 @@ fun MessageDetailScreen(
                                     onClick = {
                                         showMenu = false
                                         showSetBalance = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Not a transaction") },
+                                    trailingIcon = {
+                                        Icon(Icons.Default.MoneyOff, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.toggleTransaction()
+                                    }
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Mark as transaction") },
+                                    trailingIcon = {
+                                        Icon(Icons.Default.Paid, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        viewModel.toggleTransaction()
                                     }
                                 )
                             }

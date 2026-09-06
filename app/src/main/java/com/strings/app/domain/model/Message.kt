@@ -12,5 +12,10 @@ data class Message(
     val isOtp: Boolean = false,
     val otpCode: String? = null,
     val deviceMessageId: Long? = null,
+    /**
+     * User override: this message must never be treated as a transaction. The categorizer
+     * skips parsing while it is set, so a batch re-categorization can't resurrect it.
+     */
+    val isTransactionExcluded: Boolean = false,
     val tags: List<Tag> = emptyList()
 )

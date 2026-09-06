@@ -13,14 +13,17 @@ import com.strings.app.ui.theme.TransactionColors
 import com.strings.app.ui.theme.resolveCardColors
 import java.text.NumberFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
 private val MONTH_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
 private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("hh:mm a")
+private val DAY_HEADER_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, d MMM")
 private val CURRENCY_FORMAT: NumberFormat = NumberFormat.getCurrencyInstance(Locale("en", "IN")).apply {
     minimumFractionDigits = 2
     maximumFractionDigits = 2
@@ -29,12 +32,35 @@ private val CURRENCY_FORMAT: NumberFormat = NumberFormat.getCurrencyInstance(Loc
 fun formatMonth(month: YearMonth): String = month.format(MONTH_FORMATTER)
 
 fun formatTransactionDate(timestampMs: Long, transactionTime: String? = null): String {
-    val zdt = Instant.ofEpochMilli(timestampMs).atZone(ZoneId.systemDefault())
+    val zdt: ZonedDateTime = Instant.ofEpochMilli(timestampMs).atZone(ZoneId.systemDefault())
     val day: String = zdt.dayOfMonth.toString()
     val month: String = zdt.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
     val weekday: String = zdt.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-    val time: String = if (transactionTime != null) formatTransactionTime(transactionTime) else zdt.format(TIME_FORMATTER)
-    return "$day $month, $weekday \u2022 $time"
+    return "$day $month, $weekday \u2022 ${formatTransactionClock(timestampMs, transactionTime)}"
+}
+
+/**
+ * Time-of-day only, preferring the time the bank reported over the SMS receipt time.
+ * Used by ledger rows, where the day is already given by the section header.
+ */
+fun formatTransactionClock(timestampMs: Long, transactionTime: String? = null): String {
+    if (transactionTime != null) return formatTransactionTime(transactionTime)
+    return Instant.ofEpochMilli(timestampMs).atZone(ZoneId.systemDefault()).format(TIME_FORMATTER)
+}
+
+/**
+ * Section label for a month-scoped ledger: Today / Yesterday, then one header per calendar
+ * day (e.g. "Mon, 1 Sep"). Day granularity fits a list that is already limited to one month.
+ */
+fun transactionDateSectionLabel(timestampMs: Long): String {
+    val zone: ZoneId = ZoneId.systemDefault()
+    val date: LocalDate = Instant.ofEpochMilli(timestampMs).atZone(zone).toLocalDate()
+    val today: LocalDate = LocalDate.now(zone)
+    return when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> date.format(DAY_HEADER_FORMATTER)
+    }
 }
 
 fun formatTransactionTime(time24: String): String {

@@ -162,6 +162,8 @@ private class FakeMessageRepository : MessageRepository {
     }
     override suspend fun setRead(messageId: Long, isRead: Boolean) =
         update(messageId) { it.copy(isRead = isRead) }
+    override suspend fun setTransactionExcluded(messageId: Long, isExcluded: Boolean) =
+        update(messageId) { it.copy(isTransactionExcluded = isExcluded) }
     override suspend fun addTagToMessage(messageId: Long, tagId: Long) {
         messageTags.getOrPut(messageId) { mutableSetOf() }.add(tagId)
     }
@@ -291,27 +293,31 @@ private class Device {
         transactionRepository = transactionRepository,
         backupSettings = settings
     )
-    fun importUseCase(): ImportDataUseCase {
-        val categorizer = TransactionCategorizer(
-            transactionParser = TransactionParser(defaultBankParsers()),
-            transactionRepository = transactionRepository,
-            messageRepository = messageRepository,
-            tagRepository = tagRepository
-        )
-        return ImportDataUseCase(
-            tagRepository = tagRepository,
-            filterRepository = filterRepository,
-            messageRepository = messageRepository,
-            transactionRepository = transactionRepository,
-            backupSettings = settings,
-            json = testJson,
-            recategorizeTransactionsUseCase = RecategorizeTransactionsUseCase(
-                messageRepository = messageRepository,
-                transactionRepository = transactionRepository,
-                transactionCategorizer = categorizer
-            )
-        )
-    }
+    val categorizer: TransactionCategorizer = TransactionCategorizer(
+        transactionParser = TransactionParser(defaultBankParsers()),
+        transactionRepository = transactionRepository,
+        messageRepository = messageRepository,
+        tagRepository = tagRepository
+    )
+    fun recategorizeUseCase(): RecategorizeTransactionsUseCase = RecategorizeTransactionsUseCase(
+        messageRepository = messageRepository,
+        transactionRepository = transactionRepository,
+        transactionCategorizer = categorizer
+    )
+    fun toggleTransactionUseCase(): ToggleTransactionUseCase = ToggleTransactionUseCase(
+        messageRepository = messageRepository,
+        transactionCategorizer = categorizer
+    )
+    fun importUseCase(): ImportDataUseCase = ImportDataUseCase(
+        tagRepository = tagRepository,
+        filterRepository = filterRepository,
+        messageRepository = messageRepository,
+        transactionRepository = transactionRepository,
+        backupSettings = settings,
+        json = testJson,
+        recategorizeTransactionsUseCase = recategorizeUseCase(),
+        toggleTransactionUseCase = toggleTransactionUseCase()
+    )
     companion object {
         val testJson: Json = Json {
             ignoreUnknownKeys = true
@@ -329,6 +335,7 @@ class ExportImportDataUseCaseTest {
         isArchived: Boolean = false,
         isTrashed: Boolean = false,
         isOtp: Boolean = false,
+        isTransactionExcluded: Boolean = false,
         body: String? = null
     ): Message = Message(
         sender = sender,
@@ -339,14 +346,19 @@ class ExportImportDataUseCaseTest {
         isArchived = isArchived,
         isTrashed = isTrashed,
         isOtp = isOtp,
-        deviceMessageId = deviceMessageId
+        deviceMessageId = deviceMessageId,
+        isTransactionExcluded = isTransactionExcluded
     )
 
-    /** Parseable HDFC savings debit (no balance in body, so the 5000.5 override is user data). */
+    /** Parseable HDFC savings debits (no balance in body, so the 5000.5 override is user data). */
     private companion object {
         const val BALANCE_SENDER: String = "VM-HDFCBK"
         const val BALANCE_BODY: String =
             "Rs.100.00 debited from a/c XX2210 on 10-06-26. -HDFC Bank"
+        /** Parseable too, but the user marked it "not a transaction" on the source device. */
+        const val EXCLUDED_SENDER: String = "AD-HDFCBK"
+        const val EXCLUDED_BODY: String =
+            "Rs.250.00 debited from a/c XX2210 on 11-06-26. -HDFC Bank"
     }
 
     private fun transaction(messageId: Long, balanceAfter: Double?): Transaction = Transaction(
@@ -422,6 +434,16 @@ class ExportImportDataUseCaseTest {
             setOf(source.inboxTagId)
         )
         source.transactionRepository.seedTransaction(transaction(balanceMessageId, balanceAfter = 5000.5))
+        source.messageRepository.seedMessage(
+            message(
+                sender = EXCLUDED_SENDER,
+                timestamp = 11L,
+                deviceMessageId = 111L,
+                isTransactionExcluded = true,
+                body = EXCLUDED_BODY
+            ),
+            setOf(source.inboxTagId)
+        )
         source.transactionRepository.insertAccount(
             Account(
                 bankName = "HDFC",
@@ -480,7 +502,9 @@ class ExportImportDataUseCaseTest {
     /**
      * Simulates the fresh release install AFTER importAll ran: every device
      * SMS re-imported with new local ids, baseline tags, default flags, and
-     * re-parsed transactions (balance not captured by the parser).
+     * re-parsed transactions (balance not captured by the parser). The
+     * message excluded on the source device parses fine here, so importAll
+     * has already turned it into a transaction.
      */
     private suspend fun populateTarget(target: Device) {
         target.tagRepository.seedTab(TabConfig(tagId = target.inboxTagId, position = 0, isVisible = true))
@@ -493,12 +517,14 @@ class ExportImportDataUseCaseTest {
             "trashed" to 106L,
             "inboxRemoved" to 107L,
             BALANCE_SENDER to 108L,
-            "noDeviceId" to null
+            "noDeviceId" to null,
+            EXCLUDED_SENDER to 111L
         )
         var timestamp = 1L
         for ((sender, deviceId) in senderToDeviceId) {
             val isOtp: Boolean = sender == "otp"
             val isBalance: Boolean = sender == BALANCE_SENDER
+            val isExcluded: Boolean = sender == EXCLUDED_SENDER
             val baseline: Set<Long> = if (isOtp) setOf(target.inboxTagId, target.otpTagId) else setOf(target.inboxTagId)
             val id: Long = target.messageRepository.seedMessage(
                 message(
@@ -506,11 +532,15 @@ class ExportImportDataUseCaseTest {
                     timestamp = timestamp,
                     deviceMessageId = deviceId,
                     isOtp = isOtp,
-                    body = if (isBalance) BALANCE_BODY else null
+                    body = when {
+                        isBalance -> BALANCE_BODY
+                        isExcluded -> EXCLUDED_BODY
+                        else -> null
+                    }
                 ),
                 baseline
             )
-            if (isBalance) {
+            if (isBalance || isExcluded) {
                 target.transactionRepository.seedTransaction(transaction(id, balanceAfter = null))
             }
             timestamp++
@@ -523,12 +553,12 @@ class ExportImportDataUseCaseTest {
         populateSource(source)
         val exported: String = source.exportUseCase().execute()
         val bundle: BackupBundle = Device.testJson.decodeFromString(BackupBundle.serializer(), exported)
-        assertEquals(4, bundle.version)
+        assertEquals(5, bundle.version)
         val exportedSenders: Set<String> = bundle.messageStates.map { it.sender }.toSet()
         assertEquals(
             setOf(
                 "read", "tagged", "archived", "trashed", "inboxRemoved",
-                BALANCE_SENDER, "noDeviceId", "goneFromDevice"
+                BALANCE_SENDER, "noDeviceId", "goneFromDevice", EXCLUDED_SENDER
             ),
             exportedSenders
         )
@@ -538,6 +568,9 @@ class ExportImportDataUseCaseTest {
         assertEquals(listOf("Finance", "HDFC", "Inbox"), taggedState.tagNames)
         val balanceState = bundle.messageStates.first { it.sender == BALANCE_SENDER }
         assertEquals(5000.5, balanceState.balanceAfter!!, 0.0001)
+        assertFalse(balanceState.isTransactionExcluded)
+        val excludedState = bundle.messageStates.first { it.sender == EXCLUDED_SENDER }
+        assertTrue(excludedState.isTransactionExcluded)
         assertEquals(2, bundle.tabs.size)
         assertEquals(4, bundle.accounts.size)
         val savingsDto = bundle.accounts.first { it.accountTail == "2210" }
@@ -569,7 +602,7 @@ class ExportImportDataUseCaseTest {
         assertEquals(0, result.filtersSkipped)
         assertEquals(2, result.tabsRestored)
         assertEquals(4, result.accountsAdded)
-        assertEquals(7, result.messagesRestored)
+        assertEquals(8, result.messagesRestored)
         assertEquals(1, result.messagesUnmatched)
         assertEquals(1, result.balancesRestored)
         val savings: Account? = target.transactionRepository.findAccountByCodeAndTail("HDFC", "2210")
@@ -616,6 +649,13 @@ class ExportImportDataUseCaseTest {
             target.transactionRepository.getTransactionForMessage(balanceMessageId)
         assertNotNull(restoredTransaction)
         assertEquals(5000.5, restoredTransaction!!.balanceAfter!!, 0.0001)
+        // The "not a transaction" override wins over the target's own parse: the
+        // transaction importAll/recategorize created is gone, the Finance tags
+        // are stripped, and the flag persists so later re-runs keep skipping it.
+        val excludedMessage: Message = messages.messageBySender(EXCLUDED_SENDER)
+        assertTrue(excludedMessage.isTransactionExcluded)
+        assertNull(target.transactionRepository.getTransactionForMessage(excludedMessage.id))
+        assertEquals(setOf(target.inboxTagId), messages.tagIdsOf(excludedMessage.id))
         assertEquals("DARK", target.settings.themeMode)
         assertTrue(target.settings.appLockEnabled)
     }
@@ -661,6 +701,55 @@ class ExportImportDataUseCaseTest {
     }
 
     @Test
+    fun excludedMessageStaysExcludedAcrossRecategorizationUntilIncludedAgain() = runTest {
+        val device = Device()
+        device.transactionRepository.insertAccount(
+            Account(
+                bankName = "HDFC",
+                accountTail = "2210",
+                accountType = AccountType.SAVINGS,
+                displayName = "HDFC Savings",
+                bankCode = "HDFC"
+            )
+        )
+        val messageId: Long = device.messageRepository.seedMessage(
+            message(sender = BALANCE_SENDER, timestamp = 1L, deviceMessageId = 1L, body = BALANCE_BODY),
+            setOf(device.inboxTagId)
+        )
+        val recategorize: RecategorizeTransactionsUseCase = device.recategorizeUseCase()
+        val toggle: ToggleTransactionUseCase = device.toggleTransactionUseCase()
+        recategorize.execute(sinceMillis = 0L)
+        assertNotNull(device.transactionRepository.getTransactionForMessage(messageId))
+        val financeTag: Tag? = device.tagRepository.getTagByName("Finance")
+        assertNotNull(financeTag)
+        assertTrue(financeTag!!.id in device.messageRepository.tagIdsOf(messageId))
+        toggle.exclude(messageId)
+        assertTrue(device.messageRepository.getMessageById(messageId)!!.isTransactionExcluded)
+        assertNull(device.transactionRepository.getTransactionForMessage(messageId))
+        assertFalse(financeTag.id in device.messageRepository.tagIdsOf(messageId))
+        assertTrue(device.inboxTagId in device.messageRepository.tagIdsOf(messageId))
+        recategorize.execute(sinceMillis = 0L)
+        assertNull(device.transactionRepository.getTransactionForMessage(messageId))
+        assertEquals(IncludeTransactionResult.CATEGORIZED, toggle.include(messageId))
+        assertFalse(device.messageRepository.getMessageById(messageId)!!.isTransactionExcluded)
+        assertNotNull(device.transactionRepository.getTransactionForMessage(messageId))
+        assertTrue(financeTag.id in device.messageRepository.tagIdsOf(messageId))
+    }
+
+    @Test
+    fun includeReportsNotRecognizedWhenDetectionFindsNothing() = runTest {
+        val device = Device()
+        val messageId: Long = device.messageRepository.seedMessage(
+            message(sender = "promo", timestamp = 1L, deviceMessageId = 1L, isTransactionExcluded = true),
+            setOf(device.inboxTagId)
+        )
+        val result: IncludeTransactionResult = device.toggleTransactionUseCase().include(messageId)
+        assertEquals(IncludeTransactionResult.NOT_RECOGNIZED, result)
+        assertFalse(device.messageRepository.getMessageById(messageId)!!.isTransactionExcluded)
+        assertNull(device.transactionRepository.getTransactionForMessage(messageId))
+    }
+
+    @Test
     fun rejectsBundleFromNewerVersion() = runTest {
         val target = Device()
         try {
@@ -685,7 +774,10 @@ class ExportImportDataUseCaseTest {
         assertEquals(2, second.filtersSkipped)
         assertEquals(0, second.accountsAdded)
         assertEquals(4, target.transactionRepository.accounts.size)
-        assertEquals(7, second.messagesRestored)
+        assertEquals(8, second.messagesRestored)
+        val excludedMessage: Message = target.messageRepository.messageBySender(EXCLUDED_SENDER)
+        assertTrue(excludedMessage.isTransactionExcluded)
+        assertNull(target.transactionRepository.getTransactionForMessage(excludedMessage.id))
         val financeTag: Tag? = target.tagRepository.getTagByName("Finance")
         assertNotNull(financeTag)
         assertNull(target.tagRepository.getTagByName("Finance (1)"))

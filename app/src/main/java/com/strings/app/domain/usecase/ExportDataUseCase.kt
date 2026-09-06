@@ -120,9 +120,9 @@ class ExportDataUseCase(
     /**
      * Exports state only for messages that carry something the target device
      * can't re-derive from the SMS store: a read/archive/trash flag, a
-     * balance override on the message's transaction, or a tag set different
-     * from what the ingest pipeline auto-assigns (Inbox, plus OTP for OTP
-     * messages).
+     * "not a transaction" override, a balance override on the message's
+     * transaction, or a tag set different from what the ingest pipeline
+     * auto-assigns (Inbox, plus OTP for OTP messages).
      */
     private suspend fun buildMessageStateDtos(
         tags: List<Tag>,
@@ -148,6 +148,7 @@ class ExportDataUseCase(
             val hasRestorableState: Boolean = message.isRead ||
                 message.isArchived ||
                 message.isTrashed ||
+                message.isTransactionExcluded ||
                 balanceAfter != null ||
                 tagIds != baseline
             if (!hasRestorableState) return@mapNotNull null
@@ -159,7 +160,8 @@ class ExportDataUseCase(
                 isArchived = message.isArchived,
                 isTrashed = message.isTrashed,
                 tagNames = tagIds.mapNotNull { tagNameById[it] }.sorted(),
-                balanceAfter = balanceAfter
+                balanceAfter = balanceAfter,
+                isTransactionExcluded = message.isTransactionExcluded
             )
         }
     }

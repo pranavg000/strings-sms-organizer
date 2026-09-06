@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
@@ -20,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -118,23 +118,35 @@ fun AccountDetailScreen(
                 transactions.orEmpty().isEmpty() -> item(key = "empty") {
                     FinancePlaceholder(text = "No transactions this month")
                 }
-                else -> items(transactions.orEmpty(), key = { it.id }) { transaction ->
-                    TransactionRow(
-                        transaction = transaction,
-                        accountName = if (isFamily) familyAccountsById[transaction.accountId]?.displayName else null,
-                        onClick = {
-                            if (transaction.isSentinel) {
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar(HelpTexts.SENTINEL_INFO)
-                                }
-                            } else {
-                                onNavigateToMessage(transaction.messageId)
+                else -> transactionItems(
+                    transactions = transactions.orEmpty(),
+                    accountNameFor = { transaction ->
+                        if (isFamily) familyAccountsById[transaction.accountId]?.displayName else null
+                    },
+                    onClick = { transaction ->
+                        if (transaction.isSentinel) {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(HelpTexts.SENTINEL_INFO)
                             }
-                        },
-                        onSetBalance = { balanceEditTransaction = transaction },
-                        onDismissSentinel = { sentinelToDismiss = transaction }
-                    )
-                }
+                        } else {
+                            onNavigateToMessage(transaction.messageId)
+                        }
+                    },
+                    onSetBalance = { transaction -> balanceEditTransaction = transaction },
+                    onDismissSentinel = { transaction -> sentinelToDismiss = transaction },
+                    onExcludeTransaction = { transaction ->
+                        viewModel.excludeTransaction(transaction.messageId)
+                        coroutineScope.launch {
+                            val result: SnackbarResult = snackbarHostState.showSnackbar(
+                                message = "Marked as not a transaction",
+                                actionLabel = "Undo"
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.includeTransaction(transaction.messageId)
+                            }
+                        }
+                    }
+                )
             }
         }
     }

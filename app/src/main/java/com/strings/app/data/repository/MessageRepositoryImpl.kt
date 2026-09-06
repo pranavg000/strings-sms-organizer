@@ -157,6 +157,10 @@ class MessageRepositoryImpl(
         messageDao.setRead(messageId, isRead)
     }
 
+    override suspend fun setTransactionExcluded(messageId: Long, isExcluded: Boolean) {
+        messageDao.setTransactionExcluded(messageId, isExcluded)
+    }
+
     override suspend fun addTagToMessage(messageId: Long, tagId: Long) {
         messageDao.insertMessageTag(MessageTagEntity(messageId = messageId, tagId = tagId))
     }
@@ -257,6 +261,7 @@ class MessageRepositoryImpl(
         isOtp = isOtp,
         otpCode = otpCode,
         deviceMessageId = deviceMessageId,
+        isTransactionExcluded = isTransactionExcluded,
         tags = tags
     )
 
@@ -271,7 +276,8 @@ class MessageRepositoryImpl(
         isTrashed = isTrashed,
         isOtp = isOtp,
         otpCode = otpCode,
-        deviceMessageId = deviceMessageId
+        deviceMessageId = deviceMessageId,
+        isTransactionExcluded = isTransactionExcluded
     )
 
     private fun com.strings.app.data.local.db.entity.TagEntity.toDomain(): Tag = Tag(

@@ -15,7 +15,9 @@ import kotlinx.serialization.Serializable
 // 4 - user-configured accounts (bank code + tail + type + name + color +
 //     parent link by bankCode/tail + enabled flag). Older bundles still
 //     import (accounts default to empty).
-const val BACKUP_VERSION: Int = 4
+// 5 - per-message "not a transaction" override (MessageStateDto.isTransactionExcluded).
+//     Older bundles still import (defaults to false).
+const val BACKUP_VERSION: Int = 5
 
 @Serializable
 data class BackupBundle(
@@ -87,7 +89,8 @@ data class MessageStateDto(
     val isArchived: Boolean = false,
     val isTrashed: Boolean = false,
     val tagNames: List<String> = emptyList(),
-    val balanceAfter: Double? = null
+    val balanceAfter: Double? = null,
+    val isTransactionExcluded: Boolean = false
 )
 
 @Serializable

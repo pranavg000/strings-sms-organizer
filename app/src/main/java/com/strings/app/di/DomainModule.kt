@@ -20,6 +20,7 @@ import com.strings.app.domain.usecase.ClearFinanceDataUseCase
 import com.strings.app.domain.usecase.RecategorizeTransactionsUseCase
 import com.strings.app.domain.usecase.SearchMessagesUseCase
 import com.strings.app.domain.usecase.SyncSmsUseCase
+import com.strings.app.domain.usecase.ToggleTransactionUseCase
 import org.koin.dsl.module
 
 val domainModule = module {
@@ -37,8 +38,9 @@ val domainModule = module {
     factory { ApplyFilterToExistingUseCase(get(), get(), get(), get(), get()) }
     factory { SyncSmsUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { ExportDataUseCase(get(), get(), get(), get(), get()) }
-    factory { ImportDataUseCase(get(), get(), get(), get(), get(), get(), get()) }
+    factory { ImportDataUseCase(get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { RecategorizeTransactionsUseCase(get(), get(), get()) }
+    factory { ToggleTransactionUseCase(get(), get()) }
     factory { AdoptLegacyWalletAccountsUseCase(get(), get()) }
     factory { ExportCategorizationUseCase(get(), get(), get()) }
     factory { ClearFinanceDataUseCase(get(), get()) }

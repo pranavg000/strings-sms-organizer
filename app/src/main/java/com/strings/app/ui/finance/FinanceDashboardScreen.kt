@@ -43,6 +43,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -146,6 +147,18 @@ fun FinanceDashboardScreen(
                     onNavigateToMessage = onNavigateToMessage,
                     onShowSentinelInfo = {
                         coroutineScope.launch { snackbarHostState.showSnackbar(HelpTexts.SENTINEL_INFO) }
+                    },
+                    onExcludeTransaction = { messageId ->
+                        viewModel.excludeTransaction(messageId)
+                        coroutineScope.launch {
+                            val result: SnackbarResult = snackbarHostState.showSnackbar(
+                                message = "Marked as not a transaction",
+                                actionLabel = "Undo"
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.includeTransaction(messageId)
+                            }
+                        }
                     }
                 )
                 1 -> AccountsTab(
@@ -162,7 +175,8 @@ fun FinanceDashboardScreen(
 private fun OverviewTab(
     viewModel: FinanceDashboardViewModel,
     onNavigateToMessage: (Long) -> Unit,
-    onShowSentinelInfo: () -> Unit
+    onShowSentinelInfo: () -> Unit,
+    onExcludeTransaction: (Long) -> Unit
 ) {
     val currentMonth: YearMonth by viewModel.currentMonth.collectAsState()
     val totalBalance: Double? by viewModel.totalBalance.collectAsState()
@@ -195,21 +209,20 @@ private fun OverviewTab(
             transactions.orEmpty().isEmpty() -> item(key = "empty") {
                 FinancePlaceholder(text = "No transactions this month")
             }
-            else -> items(transactions.orEmpty(), key = { it.id }) { transaction ->
-                TransactionRow(
-                    transaction = transaction,
-                    accountName = accountsById[transaction.accountId]?.displayName,
-                    onClick = {
-                        if (transaction.isSentinel) {
-                            onShowSentinelInfo()
-                        } else {
-                            onNavigateToMessage(transaction.messageId)
-                        }
-                    },
-                    onSetBalance = { balanceEditTransaction = transaction },
-                    onDismissSentinel = { sentinelToDismiss = transaction }
-                )
-            }
+            else -> transactionItems(
+                transactions = transactions.orEmpty(),
+                accountNameFor = { transaction -> accountsById[transaction.accountId]?.displayName },
+                onClick = { transaction ->
+                    if (transaction.isSentinel) {
+                        onShowSentinelInfo()
+                    } else {
+                        onNavigateToMessage(transaction.messageId)
+                    }
+                },
+                onSetBalance = { transaction -> balanceEditTransaction = transaction },
+                onDismissSentinel = { transaction -> sentinelToDismiss = transaction },
+                onExcludeTransaction = { transaction -> onExcludeTransaction(transaction.messageId) }
+            )
         }
     }
     balanceEditTransaction?.let { txn ->
@@ -477,7 +490,8 @@ fun TransactionRow(
     accountName: String? = null,
     onClick: () -> Unit,
     onSetBalance: () -> Unit,
-    onDismissSentinel: () -> Unit = {}
+    onDismissSentinel: () -> Unit = {},
+    onExcludeTransaction: () -> Unit = {}
 ) {
     var showMenu: Boolean by remember { mutableStateOf(false) }
     Row(
@@ -521,7 +535,7 @@ fun TransactionRow(
                 }
             }
             Text(
-                text = formatTransactionDate(transaction.timestamp, transaction.transactionTime),
+                text = formatTransactionClock(transaction.timestamp, transaction.transactionTime),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -557,6 +571,13 @@ fun TransactionRow(
                         onClick = {
                             showMenu = false
                             onSetBalance()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Not a transaction") },
+                        onClick = {
+                            showMenu = false
+                            onExcludeTransaction()
                         }
                     )
                 }

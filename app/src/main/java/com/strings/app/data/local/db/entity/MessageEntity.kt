@@ -16,5 +16,6 @@ data class MessageEntity(
     val isTrashed: Boolean = false,
     val isOtp: Boolean = false,
     val otpCode: String? = null,
-    val deviceMessageId: Long? = null
+    val deviceMessageId: Long? = null,
+    val isTransactionExcluded: Boolean = false
 )

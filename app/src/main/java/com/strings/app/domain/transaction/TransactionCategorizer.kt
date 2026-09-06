@@ -18,6 +18,11 @@ import com.strings.app.domain.repository.TransactionRepository
  * When the parser reports a transactional message from a supported bank with no configured
  * account, a pending account suggestion is recorded so the user can add it from the Manage
  * accounts screen.
+ *
+ * A message the user marked as "not a transaction" ([Message.isTransactionExcluded]) is never
+ * parsed: its transaction is cleared and nothing is recreated, so batch re-runs respect the
+ * override. [clearTransaction] is the inverse of a match -- it drops the transaction and the
+ * Finance tags this class attached.
  */
 class TransactionCategorizer(
     private val transactionParser: TransactionParser,
@@ -33,6 +38,7 @@ class TransactionCategorizer(
     /** Bulk-friendly overload: callers iterating many messages fetch accounts once. */
     suspend fun categorize(message: Message, accounts: List<Account>): ParsedTransaction? {
         transactionRepository.deleteTransactionsForMessage(message.id)
+        if (message.isTransactionExcluded) return null
         return when (val outcome: ParseOutcome = transactionParser.parse(message.body, message.sender, accounts)) {
             is ParseOutcome.NoMatch -> null
             is ParseOutcome.UnconfiguredAccount -> {
@@ -69,6 +75,20 @@ class TransactionCategorizer(
         messageRepository.addTagToMessage(message.id, financeTagId)
         messageRepository.addTagToMessage(message.id, sourceTagId)
         return parsed
+    }
+
+    /**
+     * Removes the message's transaction and every Finance-family tag (the Finance tag and its
+     * bank children) from the message. Sentinel rows are left alone, as in [categorize].
+     */
+    suspend fun clearTransaction(messageId: Long) {
+        transactionRepository.deleteTransactionsForMessage(messageId)
+        val financeTag: Tag = tagRepository.getTagByName(FINANCE_TAG_NAME) ?: return
+        val financeFamilyIds: Set<Long> = (tagRepository.getDescendantTagIds(financeTag.id) + financeTag.id).toSet()
+        val assignedTagIds: List<Long> = messageRepository.getTagIdsForMessage(messageId)
+        for (tagId: Long in assignedTagIds) {
+            if (tagId in financeFamilyIds) messageRepository.removeTagFromMessage(messageId, tagId)
+        }
     }
 
     private suspend fun ensureTag(name: String, parentTagId: Long?): Long {

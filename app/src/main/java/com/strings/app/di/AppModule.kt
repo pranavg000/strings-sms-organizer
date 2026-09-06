@@ -24,15 +24,15 @@ val appModule = module {
     viewModel { FilterViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { FilterMessagesViewModel(get(), get(), get(), get(), get()) }
     viewModel { TagViewModel(get(), get(), get()) }
-    viewModel { MessageDetailViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { MessageDetailViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { TagMessagesViewModel(get(), get(), get(), get()) }
     viewModel { AllMessagesViewModel(get(), get(), get()) }
     viewModel { ArchivedMessagesViewModel(get(), get(), get()) }
     viewModel { TrashedMessagesViewModel(get(), get(), get()) }
     viewModel { BackupViewModel(get(), get(), get()) }
-    viewModel { FinanceDashboardViewModel(get(), get()) }
+    viewModel { FinanceDashboardViewModel(get(), get(), get()) }
     viewModel { ManageAccountsViewModel(get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), get()) }
-    viewModel { (accountId: Long) -> AccountDetailViewModel(get(), get(), accountId) }
+    viewModel { (accountId: Long) -> AccountDetailViewModel(get(), get(), get(), accountId) }
 }
 

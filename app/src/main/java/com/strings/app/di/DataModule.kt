@@ -8,6 +8,7 @@ import com.strings.app.data.local.db.MIGRATION_3_4
 import com.strings.app.data.local.db.MIGRATION_4_5
 import com.strings.app.data.local.db.MIGRATION_5_6
 import com.strings.app.data.local.db.MIGRATION_6_7
+import com.strings.app.data.local.db.MIGRATION_7_8
 import com.strings.app.data.local.db.StringsDatabase
 import com.strings.app.data.prefs.DataStoreBackupSettings
 import com.strings.app.data.prefs.SettingsDataStore
@@ -41,7 +42,10 @@ val dataModule = module {
             androidContext(),
             StringsDatabase::class.java,
             "strings_database"
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7).build()
+        ).addMigrations(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+            MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+        ).build()
     }
     single { get<StringsDatabase>().messageDao() }
     single { get<StringsDatabase>().tagDao() }
