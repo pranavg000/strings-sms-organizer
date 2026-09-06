@@ -178,6 +178,29 @@ export PATH="$JAVA_HOME/bin:$PATH"
 - Compile/assemble without installing: `./gradlew assembleDebug`. A full Gradle build is what validates Room/KSP codegen (lints alone won't catch schema/DAO errors).
 - The first invocation downloads the Gradle distribution and starts a daemon, so it is slow; give it a few minutes and don't abort early. Subsequent runs reuse the daemon.
 
+### Deployment (release to GitHub)
+
+The app is distributed via GitHub Releases on `pranavg000/strings-sms-organizer` (remote `origin`, branch `main`). Steps for a release `X.Y.Z` (semver: patch = bugfix, minor = feature, major = breaking):
+
+1. **Bump the version** in `app/build.gradle.kts`: set `versionName = "X.Y.Z"` AND increment `versionCode` by 1 (Android refuses to install an update whose `versionCode` hasn't increased -- never skip it).
+2. **Verify**: `./gradlew assembleDebug testDebugUnitTest` must pass.
+3. **Commit** all release changes (including the version bump) with a descriptive message and **push**: `git push origin main`.
+4. **Tag** the release commit and push the tag:
+
+```bash
+git tag -a vX.Y.Z -m "Strings vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+5. **Draft the release description** (markdown) for the user to paste: a `## What's new` section with user-facing bullets (not commit messages), an `## Installing` section linking the README install guide (`#install` anchor) for the Play Protect / restricted-settings steps, a note that updates keep user data, and "Requires Android 15+". Mention Obtainium for auto-update notifications.
+6. **The user does the rest manually** (agent has no GitHub API access): build the signed release APK in Android Studio (must be signed with the existing keystore -- a different key breaks updates for all users), then on https://github.com/pranavg000/strings-sms-organizer/releases/new select tag `vX.Y.Z`, title `Strings vX.Y.Z`, paste the description, attach the APK named `strings-vX.Y.Z.apk`, and publish.
+
+Constraints to preserve:
+- The APK must be built from the tagged commit (rebuild after the version bump, never upload a stale binary).
+- Keep the `strings-vX.Y.Z.apk` asset naming -- the README and Obtainium users rely on Releases being the stable channel.
+- The app has NO network permission by design ("Check for updates" in Settings just opens the releases page in the browser). Never add `INTERNET` for update checks -- it's a load-bearing privacy claim in the README and help page.
+- Force-pushing `main` or moving/deleting published tags requires explicit user approval.
+
 ### Future Plans
 
 See `FUTURE_PLANS.md` for the roadmap. The next phases are:
