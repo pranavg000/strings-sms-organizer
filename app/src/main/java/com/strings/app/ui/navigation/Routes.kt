@@ -47,6 +47,10 @@ data class AccountDetailRoute(val accountId: Long)
 @Serializable
 object ManageAccountsRoute
 
+/** Message picker that attaches the given sentinel / linked transaction to the chosen message. */
+@Serializable
+data class LinkTransactionRoute(val transactionId: Long)
+
 @Serializable
 data class AccountEditRoute(
     val accountId: Long = -1L,

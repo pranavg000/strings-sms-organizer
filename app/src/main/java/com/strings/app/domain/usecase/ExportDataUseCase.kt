@@ -5,6 +5,7 @@ import com.strings.app.domain.backup.BackupBundle
 import com.strings.app.domain.backup.BackupSettingsStore
 import com.strings.app.domain.backup.FilterActionDto
 import com.strings.app.domain.backup.FilterDto
+import com.strings.app.domain.backup.LinkedTransactionDto
 import com.strings.app.domain.backup.MessageStateDto
 import com.strings.app.domain.backup.SettingsDto
 import com.strings.app.domain.backup.TabConfigDto
@@ -15,6 +16,7 @@ import com.strings.app.domain.model.Message
 import com.strings.app.domain.model.TabConfig
 import com.strings.app.domain.model.Tag
 import com.strings.app.domain.model.Transaction
+import com.strings.app.domain.model.TransactionOrigin
 import com.strings.app.domain.repository.FilterRepository
 import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TagRepository
@@ -120,9 +122,10 @@ class ExportDataUseCase(
     /**
      * Exports state only for messages that carry something the target device
      * can't re-derive from the SMS store: a read/archive/trash flag, a
-     * "not a transaction" override, a balance override on the message's
-     * transaction, or a tag set different from what the ingest pipeline
-     * auto-assigns (Inbox, plus OTP for OTP messages).
+     * "not a transaction" override, a description, a balance override on the
+     * message's parsed transaction, a transaction the user linked by hand, or
+     * a tag set different from what the ingest pipeline auto-assigns (Inbox,
+     * plus OTP for OTP messages). Sentinels are derived and stay out.
      */
     private suspend fun buildMessageStateDtos(
         tags: List<Tag>,
@@ -130,12 +133,9 @@ class ExportDataUseCase(
     ): List<MessageStateDto> {
         val messages: List<Message> = messageRepository.getAllMessagesOnce()
         val tagIdsByMessage: Map<Long, List<Long>> = messageRepository.getTagIdsByMessage()
-        val balanceByMessageId: Map<Long, Double> = transactionRepository
-            .getTransactionsWithBalanceOnce()
-            .mapNotNull { transaction: Transaction ->
-                transaction.balanceAfter?.let { transaction.messageId to it }
-            }
-            .toMap()
+        val transactionsByMessage: Map<Long, List<Transaction>> =
+            transactionRepository.getAllTransactionsOnce().groupBy { it.messageId }
+        val accountsById: Map<Long, Account> = transactionRepository.getAllAccountsOnce().associateBy { it.id }
         val inboxTagId: Long? = tags.firstOrNull { it.isSystemTag && it.name == SystemTags.INBOX_NAME }?.id
         val otpTagId: Long? = tags.firstOrNull { it.isSystemTag && it.name == SystemTags.OTP_NAME }?.id
         return messages.mapNotNull { message ->
@@ -144,12 +144,19 @@ class ExportDataUseCase(
                 inboxTagId?.let { add(it) }
                 if (message.isOtp) otpTagId?.let { add(it) }
             }
-            val balanceAfter: Double? = balanceByMessageId[message.id]
+            val transactions: List<Transaction> = transactionsByMessage[message.id].orEmpty()
+            val balanceAfter: Double? = transactions
+                .firstOrNull { it.origin == TransactionOrigin.PARSED }?.balanceAfter
+            val linked: List<LinkedTransactionDto> = transactions
+                .filter { it.isLinked }
+                .mapNotNull { transaction -> toLinkedDto(transaction, accountsById) }
             val hasRestorableState: Boolean = message.isRead ||
                 message.isArchived ||
                 message.isTrashed ||
                 message.isTransactionExcluded ||
+                message.description != null ||
                 balanceAfter != null ||
+                linked.isNotEmpty() ||
                 tagIds != baseline
             if (!hasRestorableState) return@mapNotNull null
             MessageStateDto(
@@ -161,8 +168,24 @@ class ExportDataUseCase(
                 isTrashed = message.isTrashed,
                 tagNames = tagIds.mapNotNull { tagNameById[it] }.sorted(),
                 balanceAfter = balanceAfter,
-                isTransactionExcluded = message.isTransactionExcluded
+                isTransactionExcluded = message.isTransactionExcluded,
+                description = message.description,
+                linkedTransactions = linked
             )
         }
+    }
+
+    /** A linked transaction is only portable when its account can be found by (bankCode, tail). */
+    private fun toLinkedDto(transaction: Transaction, accountsById: Map<Long, Account>): LinkedTransactionDto? {
+        val account: Account = accountsById[transaction.accountId] ?: return null
+        if (account.bankCode.isEmpty()) return null
+        return LinkedTransactionDto(
+            bankCode = account.bankCode,
+            accountTail = account.accountTail,
+            amount = transaction.amount,
+            type = transaction.type.name,
+            balanceAfter = transaction.balanceAfter,
+            rawMatch = transaction.rawMatch
+        )
     }
 }

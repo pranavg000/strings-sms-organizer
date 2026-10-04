@@ -4,6 +4,7 @@ import com.strings.app.ui.backup.BackupViewModel
 import com.strings.app.ui.detail.MessageDetailViewModel
 import com.strings.app.ui.finance.AccountDetailViewModel
 import com.strings.app.ui.finance.FinanceDashboardViewModel
+import com.strings.app.ui.finance.LinkTransactionViewModel
 import com.strings.app.ui.finance.ManageAccountsViewModel
 import com.strings.app.ui.filters.FilterMessagesViewModel
 import com.strings.app.ui.filters.FilterViewModel
@@ -24,15 +25,16 @@ val appModule = module {
     viewModel { FilterViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { FilterMessagesViewModel(get(), get(), get(), get(), get()) }
     viewModel { TagViewModel(get(), get(), get()) }
-    viewModel { MessageDetailViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { MessageDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { TagMessagesViewModel(get(), get(), get(), get()) }
     viewModel { AllMessagesViewModel(get(), get(), get()) }
     viewModel { ArchivedMessagesViewModel(get(), get(), get()) }
     viewModel { TrashedMessagesViewModel(get(), get(), get()) }
     viewModel { BackupViewModel(get(), get(), get()) }
-    viewModel { FinanceDashboardViewModel(get(), get(), get()) }
+    viewModel { FinanceDashboardViewModel(get(), get(), get(), get(), get()) }
     viewModel { ManageAccountsViewModel(get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), get()) }
-    viewModel { (accountId: Long) -> AccountDetailViewModel(get(), get(), get(), accountId) }
+    viewModel { (accountId: Long) -> AccountDetailViewModel(get(), get(), get(), get(), get(), accountId) }
+    viewModel { (transactionId: Long) -> LinkTransactionViewModel(get(), get(), transactionId) }
 }
 

@@ -4,7 +4,9 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.strings.app.data.local.db.entity.TransactionEntity
+import com.strings.app.data.local.db.entity.TransactionWithDescription
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -12,12 +14,15 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
+    suspend fun getAllTransactionsOnce(): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions WHERE accountId = :accountId ORDER BY timestamp DESC")
     fun getTransactionsByAccount(accountId: Long): Flow<List<TransactionEntity>>
 
     // Sentinel rows share the anchor message's id, so message-scoped reads return only the
-    // real parsed transaction.
-    @Query("SELECT * FROM transactions WHERE messageId = :messageId AND isSentinel = 0")
+    // transactions that belong to the message (parsed or linked by the user).
+    @Query("SELECT * FROM transactions WHERE messageId = :messageId AND origin != 'SENTINEL' ORDER BY id")
     suspend fun getTransactionsForMessage(messageId: Long): List<TransactionEntity>
 
     @Query("SELECT * FROM transactions WHERE id = :transactionId")
@@ -26,28 +31,37 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE accountId IN (:accountIds) ORDER BY timestamp DESC")
     suspend fun getTransactionsByAccountsOnce(accountIds: List<Long>): List<TransactionEntity>
 
-    // Excludes sentinels so re-categorizing the anchor message never wipes an
-    // unaccounted-amount placeholder (those are removed manually by the user).
-    @Query("DELETE FROM transactions WHERE messageId = :messageId AND isSentinel = 0")
-    suspend fun deleteByMessageId(messageId: Long)
+    // Only parser output is owned by re-categorization: sentinels and user-linked rows stay.
+    @Query("DELETE FROM transactions WHERE messageId = :messageId AND origin = 'PARSED'")
+    suspend fun deleteParsedByMessageId(messageId: Long)
 
-    @Query("DELETE FROM transactions WHERE messageId = :messageId AND isSentinel = 1")
+    @Query("DELETE FROM transactions WHERE messageId = :messageId AND origin = 'SENTINEL'")
     suspend fun deleteSentinelsByMessageId(messageId: Long)
 
     @Query("DELETE FROM transactions WHERE id = :transactionId")
     suspend fun deleteById(transactionId: Long)
 
-    @Query("SELECT * FROM transactions WHERE timestamp BETWEEN :from AND :to ORDER BY timestamp DESC")
-    fun getTransactionsInRange(from: Long, to: Long): Flow<List<TransactionEntity>>
+    @Query(
+        "SELECT t.*, m.description AS messageDescription FROM transactions t " +
+            "LEFT JOIN messages m ON m.id = t.messageId " +
+            "WHERE t.timestamp BETWEEN :from AND :to ORDER BY t.timestamp DESC"
+    )
+    fun getLedgerInRange(from: Long, to: Long): Flow<List<TransactionWithDescription>>
 
-    @Query("SELECT * FROM transactions WHERE accountId = :accountId AND timestamp BETWEEN :from AND :to ORDER BY timestamp DESC")
-    fun getTransactionsByAccountInRange(accountId: Long, from: Long, to: Long): Flow<List<TransactionEntity>>
+    @Query(
+        "SELECT t.*, m.description AS messageDescription FROM transactions t " +
+            "LEFT JOIN messages m ON m.id = t.messageId " +
+            "WHERE t.accountId IN (:accountIds) AND t.timestamp BETWEEN :from AND :to " +
+            "ORDER BY t.timestamp DESC"
+    )
+    fun getLedgerByAccountsInRange(
+        accountIds: List<Long>,
+        from: Long,
+        to: Long
+    ): Flow<List<TransactionWithDescription>>
 
     @Query("SELECT * FROM transactions WHERE accountId IN (:accountIds) ORDER BY timestamp DESC")
     fun getTransactionsByAccounts(accountIds: List<Long>): Flow<List<TransactionEntity>>
-
-    @Query("SELECT * FROM transactions WHERE accountId IN (:accountIds) AND timestamp BETWEEN :from AND :to ORDER BY timestamp DESC")
-    fun getTransactionsByAccountsInRange(accountIds: List<Long>, from: Long, to: Long): Flow<List<TransactionEntity>>
 
     @Query("SELECT * FROM transactions WHERE balanceAfter IS NOT NULL")
     suspend fun getTransactionsWithBalance(): List<TransactionEntity>
@@ -63,4 +77,7 @@ interface TransactionDao {
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
+
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
 }

@@ -27,6 +27,7 @@ interface MessageRepository {
     suspend fun deleteAllTrashed()
     suspend fun setRead(messageId: Long, isRead: Boolean)
     suspend fun setTransactionExcluded(messageId: Long, isExcluded: Boolean)
+    suspend fun setDescription(messageId: Long, description: String?)
     suspend fun addTagToMessage(messageId: Long, tagId: Long)
     suspend fun removeTagFromMessage(messageId: Long, tagId: Long)
     suspend fun getTagIdsForMessage(messageId: Long): List<Long>

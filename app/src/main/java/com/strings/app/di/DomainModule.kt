@@ -17,6 +17,7 @@ import com.strings.app.domain.usecase.GetFilteredMessagesUseCase
 import com.strings.app.domain.usecase.ImportDataUseCase
 import com.strings.app.domain.usecase.GetMessagesForTagUseCase
 import com.strings.app.domain.usecase.ClearFinanceDataUseCase
+import com.strings.app.domain.usecase.LinkTransactionToMessageUseCase
 import com.strings.app.domain.usecase.RecategorizeTransactionsUseCase
 import com.strings.app.domain.usecase.SearchMessagesUseCase
 import com.strings.app.domain.usecase.SyncSmsUseCase
@@ -38,9 +39,10 @@ val domainModule = module {
     factory { ApplyFilterToExistingUseCase(get(), get(), get(), get(), get()) }
     factory { SyncSmsUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { ExportDataUseCase(get(), get(), get(), get(), get()) }
-    factory { ImportDataUseCase(get(), get(), get(), get(), get(), get(), get(), get()) }
+    factory { ImportDataUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { RecategorizeTransactionsUseCase(get(), get(), get()) }
     factory { ToggleTransactionUseCase(get(), get()) }
+    factory { LinkTransactionToMessageUseCase(get(), get(), get()) }
     factory { AdoptLegacyWalletAccountsUseCase(get(), get()) }
     factory { ExportCategorizationUseCase(get(), get(), get()) }
     factory { ClearFinanceDataUseCase(get(), get()) }

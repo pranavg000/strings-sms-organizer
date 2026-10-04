@@ -37,7 +37,7 @@ class TransactionCategorizer(
 
     /** Bulk-friendly overload: callers iterating many messages fetch accounts once. */
     suspend fun categorize(message: Message, accounts: List<Account>): ParsedTransaction? {
-        transactionRepository.deleteTransactionsForMessage(message.id)
+        transactionRepository.deleteParsedTransactionsForMessage(message.id)
         if (message.isTransactionExcluded) return null
         return when (val outcome: ParseOutcome = transactionParser.parse(message.body, message.sender, accounts)) {
             is ParseOutcome.NoMatch -> null
@@ -70,19 +70,30 @@ class TransactionCategorizer(
                 rawMatch = parsed.rawMatch
             )
         )
-        val financeTagId: Long = ensureTag(FINANCE_TAG_NAME, parentTagId = null)
-        val sourceTagId: Long = ensureTag(parsed.account.bankName, parentTagId = financeTagId)
-        messageRepository.addTagToMessage(message.id, financeTagId)
-        messageRepository.addTagToMessage(message.id, sourceTagId)
+        attachFinanceTags(message.id, parsed.account.bankName)
         return parsed
     }
 
     /**
-     * Removes the message's transaction and every Finance-family tag (the Finance tag and its
-     * bank children) from the message. Sentinel rows are left alone, as in [categorize].
+     * Removes the message's parsed transaction and every Finance-family tag (the Finance tag
+     * and its bank children) from the message. Sentinel and user-linked rows are left alone,
+     * as in [categorize].
      */
     suspend fun clearTransaction(messageId: Long) {
-        transactionRepository.deleteTransactionsForMessage(messageId)
+        transactionRepository.deleteParsedTransactionsForMessage(messageId)
+        detachFinanceTags(messageId)
+    }
+
+    /** Tags the message as Finance > [bankName], creating either tag if missing. */
+    suspend fun attachFinanceTags(messageId: Long, bankName: String) {
+        val financeTagId: Long = ensureTag(FINANCE_TAG_NAME, parentTagId = null)
+        val sourceTagId: Long = ensureTag(bankName, parentTagId = financeTagId)
+        messageRepository.addTagToMessage(messageId, financeTagId)
+        messageRepository.addTagToMessage(messageId, sourceTagId)
+    }
+
+    /** Strips the Finance tag and all of its children from the message. */
+    suspend fun detachFinanceTags(messageId: Long) {
         val financeTag: Tag = tagRepository.getTagByName(FINANCE_TAG_NAME) ?: return
         val financeFamilyIds: Set<Long> = (tagRepository.getDescendantTagIds(financeTag.id) + financeTag.id).toSet()
         val assignedTagIds: List<Long> = messageRepository.getTagIdsForMessage(messageId)

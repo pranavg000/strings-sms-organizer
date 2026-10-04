@@ -3,12 +3,15 @@ package com.strings.app.ui.finance
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.strings.app.domain.model.Account
+import com.strings.app.domain.model.LedgerEntry
 import com.strings.app.domain.model.Transaction
 import com.strings.app.domain.model.TransactionType
+import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TransactionRepository
 import com.strings.app.domain.transaction.AccountFamilies
 import com.strings.app.domain.transaction.BalanceDiscrepancy
 import com.strings.app.domain.usecase.CheckBalanceDiscrepancyUseCase
+import com.strings.app.domain.usecase.LinkTransactionToMessageUseCase
 import com.strings.app.domain.usecase.ToggleTransactionUseCase
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,8 +60,10 @@ private fun familySortComparator(): Comparator<AccountBalance> {
 
 class FinanceDashboardViewModel(
     private val transactionRepository: TransactionRepository,
+    private val messageRepository: MessageRepository,
     private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase,
-    private val toggleTransaction: ToggleTransactionUseCase
+    private val toggleTransaction: ToggleTransactionUseCase,
+    private val linkTransaction: LinkTransactionToMessageUseCase
 ) : ViewModel() {
 
     private val _currentMonth: MutableStateFlow<YearMonth> = MutableStateFlow(YearMonth.now())
@@ -73,8 +78,14 @@ class FinanceDashboardViewModel(
 
     // Nullable list flows start as null (= loading) so the UI can distinguish
     // "still loading" from "genuinely empty" and avoid flashing the empty state.
-    private val monthlyTransactions: StateFlow<List<Transaction>?> = monthRange
-        .flatMapLatest { (from, to) -> transactionRepository.getTransactionsInRange(from, to) }
+    // The ledger query joins each transaction with its message's description; the
+    // stats below only need the transactions, so they derive from the same emission.
+    val overviewEntries: StateFlow<List<LedgerEntry>?> = monthRange
+        .flatMapLatest { (from, to) -> transactionRepository.getLedgerInRange(from, to) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val monthlyTransactions: StateFlow<List<Transaction>?> = overviewEntries
+        .map { entries -> entries?.map { it.transaction } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val allTransactions: StateFlow<List<Transaction>?> = transactionRepository.getAllTransactions()
@@ -139,8 +150,6 @@ class FinanceDashboardViewModel(
         if (unique.isEmpty()) null else unique.sum()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val overviewTransactions: StateFlow<List<Transaction>?> = monthlyTransactions
-
     /**
      * Provides account lookup by ID for displaying account names in overview transaction rows.
      */
@@ -163,6 +172,16 @@ class FinanceDashboardViewModel(
         viewModelScope.launch {
             transactionRepository.deleteTransactionById(transactionId)
         }
+    }
+
+    /** Deletes a transaction the user linked by hand (confirmed in the UI). */
+    fun removeLinkedTransaction(transactionId: Long) {
+        viewModelScope.launch { linkTransaction.remove(transactionId) }
+    }
+
+    /** Edits the description of the message behind a ledger row; the join re-emits the preview. */
+    fun setMessageDescription(messageId: Long, description: String?) {
+        viewModelScope.launch { messageRepository.setDescription(messageId, description) }
     }
 
     /** "Not a transaction" from a ledger row; the Room flows drop the row automatically. */

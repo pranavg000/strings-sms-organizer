@@ -35,5 +35,6 @@ data class TransactionEntity(
     val transactionTime: String? = null,
     val timestamp: Long,
     val rawMatch: String,
-    val isSentinel: Boolean = false
+    /** Stored [com.strings.app.domain.model.TransactionOrigin] name. */
+    val origin: String = "PARSED"
 )

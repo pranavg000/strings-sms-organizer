@@ -27,6 +27,7 @@ import com.strings.app.ui.filters.FilterMessagesScreen
 import com.strings.app.ui.finance.AccountDetailScreen
 import com.strings.app.ui.finance.AccountEditScreen
 import com.strings.app.ui.finance.FinanceDashboardScreen
+import com.strings.app.ui.finance.LinkTransactionScreen
 import com.strings.app.ui.finance.ManageAccountsScreen
 import com.strings.app.ui.help.HelpScreen
 import com.strings.app.ui.inbox.AllMessagesScreen
@@ -60,6 +61,7 @@ private fun NavDestination.usesFadeThrough(): Boolean =
         hasRoute<HelpRoute>() ||
         hasRoute<FinanceDashboardRoute>() ||
         hasRoute<SearchRoute>() ||
+        hasRoute<LinkTransactionRoute>() ||
         hasRoute<FilterListRoute>() ||
         hasRoute<TagListRoute>() ||
         hasRoute<ManageAccountsRoute>()
@@ -226,7 +228,19 @@ fun StringsNavGraph(
                             },
                             onNavigateToManageAccounts = {
                                 navController.navigate(ManageAccountsRoute) { launchSingleTop = true }
+                            },
+                            onNavigateToLinkTransaction = { transactionId ->
+                                navController.navigate(LinkTransactionRoute(transactionId)) { launchSingleTop = true }
                             }
+                        )
+                    }
+                }
+                composable<LinkTransactionRoute> { backStackEntry ->
+                    val route = backStackEntry.toRoute<LinkTransactionRoute>()
+                    ProvideNavAnimationScope {
+                        LinkTransactionScreen(
+                            transactionId = route.transactionId,
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
                 }
@@ -262,6 +276,9 @@ fun StringsNavGraph(
                             onNavigateBack = { navController.popBackStack() },
                             onNavigateToMessage = { messageId ->
                                 navController.navigate(MessageDetailRoute(messageId)) { launchSingleTop = true }
+                            },
+                            onNavigateToLinkTransaction = { transactionId ->
+                                navController.navigate(LinkTransactionRoute(transactionId)) { launchSingleTop = true }
                             }
                         )
                     }
@@ -337,7 +354,10 @@ fun StringsNavGraph(
                     ProvideNavAnimationScope {
                         MessageDetailScreen(
                             messageId = route.messageId,
-                            onNavigateBack = { navController.popBackStack() }
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToLinkTransaction = { transactionId ->
+                                navController.navigate(LinkTransactionRoute(transactionId)) { launchSingleTop = true }
+                            }
                         )
                     }
                 }

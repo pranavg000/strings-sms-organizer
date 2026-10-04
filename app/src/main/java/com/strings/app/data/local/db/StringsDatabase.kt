@@ -31,7 +31,7 @@ import com.strings.app.data.local.db.entity.TransactionEntity
         AccountSuggestionEntity::class,
         TransactionEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class StringsDatabase : RoomDatabase() {

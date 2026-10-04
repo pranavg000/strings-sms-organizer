@@ -1,11 +1,13 @@
 package com.strings.app.domain.usecase
 
-import androidx.paging.PagingData
 import com.strings.app.domain.backup.BackupBundle
-import com.strings.app.domain.backup.BackupSettingsStore
 import com.strings.app.domain.backup.ImportResult
+import com.strings.app.domain.fakes.FakeBackupSettings
+import com.strings.app.domain.fakes.FakeFilterRepository
+import com.strings.app.domain.fakes.FakeMessageRepository
+import com.strings.app.domain.fakes.FakeTagRepository
+import com.strings.app.domain.fakes.FakeTransactionRepository
 import com.strings.app.domain.model.Account
-import com.strings.app.domain.model.AccountSuggestion
 import com.strings.app.domain.model.AccountType
 import com.strings.app.domain.model.ActionType
 import com.strings.app.domain.model.ConditionField
@@ -18,16 +20,11 @@ import com.strings.app.domain.model.Message
 import com.strings.app.domain.model.TabConfig
 import com.strings.app.domain.model.Tag
 import com.strings.app.domain.model.Transaction
+import com.strings.app.domain.model.TransactionOrigin
 import com.strings.app.domain.model.TransactionType
-import com.strings.app.domain.repository.FilterRepository
-import com.strings.app.domain.repository.MessageRepository
-import com.strings.app.domain.repository.TagRepository
-import com.strings.app.domain.repository.TransactionRepository
 import com.strings.app.domain.transaction.TransactionCategorizer
 import com.strings.app.domain.transaction.TransactionParser
 import com.strings.app.domain.transaction.defaultBankParsers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -37,242 +34,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-
-private class FakeTagRepository : TagRepository {
-    val tags: MutableList<Tag> = mutableListOf()
-    val tabs: MutableList<TabConfig> = mutableListOf()
-    private var nextTagId: Long = 1L
-    private var nextTabId: Long = 1L
-    fun seedTag(tag: Tag): Long {
-        val id: Long = nextTagId++
-        tags.add(tag.copy(id = id))
-        return id
-    }
-    fun seedTab(tab: TabConfig): Long {
-        val id: Long = nextTabId++
-        tabs.add(tab.copy(id = id))
-        return id
-    }
-    override fun getAllTags(): Flow<List<Tag>> = flowOf(tags.toList())
-    override suspend fun getAllTagsList(): List<Tag> = tags.toList()
-    override fun getTopLevelTags(): Flow<List<Tag>> = flowOf(tags.filter { it.parentTagId == null })
-    override fun getChildTags(parentId: Long): Flow<List<Tag>> = flowOf(tags.filter { it.parentTagId == parentId })
-    override fun getVisibleTabs(): Flow<List<TabConfig>> = flowOf(tabs.filter { it.isVisible })
-    override fun getAllTabs(): Flow<List<TabConfig>> = flowOf(tabs.toList())
-    override fun getTagMessageCounts(): Flow<Map<Long, Int>> = flowOf(emptyMap())
-    override suspend fun getTagById(id: Long): Tag? = tags.firstOrNull { it.id == id }
-    override suspend fun getTagByName(name: String): Tag? = tags.firstOrNull { it.name == name }
-    override suspend fun insertTag(tag: Tag): Long = seedTag(tag)
-    override suspend fun updateTag(tag: Tag) {
-        val index: Int = tags.indexOfFirst { it.id == tag.id }
-        if (index >= 0) tags[index] = tag
-    }
-    override suspend fun deleteTag(id: Long) {
-        tags.removeAll { it.id == id }
-    }
-    override suspend fun getDescendantTagIds(parentTagId: Long): List<Long> = emptyList()
-    override suspend fun insertTabConfig(tabConfig: TabConfig): Long = seedTab(tabConfig)
-    override suspend fun updateTabConfig(tabConfig: TabConfig) {
-        val index: Int = tabs.indexOfFirst { it.id == tabConfig.id }
-        if (index >= 0) tabs[index] = tabConfig
-    }
-    override suspend fun deleteTabConfig(id: Long) {
-        tabs.removeAll { it.id == id }
-    }
-    override suspend fun deleteTabConfigByTagId(tagId: Long) {
-        tabs.removeAll { it.tagId == tagId }
-    }
-    override suspend fun replaceAllTabs(tabs: List<TabConfig>) {
-        this.tabs.clear()
-        this.tabs.addAll(tabs)
-    }
-}
-
-private class FakeFilterRepository : FilterRepository {
-    val filters: MutableList<Filter> = mutableListOf()
-    private var nextId: Long = 1L
-    override fun getAllFilters(): Flow<List<Filter>> = flowOf(filters.sortedBy { it.priority })
-    override suspend fun getEnabledFilters(): List<Filter> = filters.filter { it.isEnabled }
-    override suspend fun getFilterById(id: Long): Filter? = filters.firstOrNull { it.id == id }
-    override suspend fun insertFilter(filter: Filter): Long {
-        val id: Long = nextId++
-        filters.add(filter.copy(id = id))
-        return id
-    }
-    override suspend fun updateFilter(filter: Filter) {
-        val index: Int = filters.indexOfFirst { it.id == filter.id }
-        if (index >= 0) filters[index] = filter
-    }
-    override suspend fun deleteFilter(id: Long) {
-        filters.removeAll { it.id == id }
-    }
-    override suspend fun setEnabled(filterId: Long, isEnabled: Boolean) {
-        val index: Int = filters.indexOfFirst { it.id == filterId }
-        if (index >= 0) filters[index] = filters[index].copy(isEnabled = isEnabled)
-    }
-    override suspend fun getFilterNamesUsingTag(tagId: Long): List<String> = emptyList()
-    override suspend fun getMaxPriority(): Int = filters.maxOfOrNull { it.priority } ?: 0
-    override suspend fun setFilterOrder(orderedIds: List<Long>) = Unit
-}
-
-private class FakeMessageRepository : MessageRepository {
-    val messages: MutableList<Message> = mutableListOf()
-    val messageTags: MutableMap<Long, MutableSet<Long>> = mutableMapOf()
-    private var nextId: Long = 1L
-    fun seedMessage(message: Message, tagIds: Set<Long>): Long {
-        val id: Long = nextId++
-        messages.add(message.copy(id = id))
-        messageTags[id] = tagIds.toMutableSet()
-        return id
-    }
-    fun messageBySender(sender: String): Message = messages.first { it.sender == sender }
-    fun tagIdsOf(messageId: Long): Set<Long> = messageTags[messageId].orEmpty()
-    private fun update(messageId: Long, transform: (Message) -> Message) {
-        val index: Int = messages.indexOfFirst { it.id == messageId }
-        if (index >= 0) messages[index] = transform(messages[index])
-    }
-    override fun getAllMessages(): Flow<List<Message>> = flowOf(messages.toList())
-    override fun getMessagesByTagId(tagId: Long): Flow<List<Message>> = flowOf(emptyList())
-    override fun getMessagesByTagIds(tagIds: List<Long>): Flow<List<Message>> = flowOf(emptyList())
-    override fun getPagedMessagesByTagIds(tagIds: List<Long>): Flow<PagingData<Message>> =
-        throw UnsupportedOperationException()
-    override fun getPagedAllMessages(): Flow<PagingData<Message>> = throw UnsupportedOperationException()
-    override fun getPagedArchivedMessages(): Flow<PagingData<Message>> = throw UnsupportedOperationException()
-    override fun getPagedTrashedMessages(): Flow<PagingData<Message>> = throw UnsupportedOperationException()
-    override fun searchMessages(query: String): Flow<List<Message>> = flowOf(emptyList())
-    override fun getArchivedMessages(): Flow<List<Message>> = flowOf(messages.filter { it.isArchived })
-    override fun getTrashedMessages(): Flow<List<Message>> = flowOf(messages.filter { it.isTrashed })
-    override suspend fun getMessageById(id: Long): Message? = messages.firstOrNull { it.id == id }
-    override suspend fun getMessagesSince(since: Long): List<Message> = messages.filter { it.timestamp >= since }
-    override suspend fun insertMessage(message: Message): Long = seedMessage(message, emptySet())
-    override suspend fun updateMessage(message: Message) = update(message.id) { message }
-    override suspend fun setArchived(messageId: Long, isArchived: Boolean) =
-        update(messageId) { it.copy(isArchived = isArchived) }
-    override suspend fun setTrashed(messageId: Long, isTrashed: Boolean) =
-        update(messageId) { it.copy(isTrashed = isTrashed) }
-    override suspend fun setArchivedBulk(messageIds: List<Long>, isArchived: Boolean) =
-        messageIds.forEach { setArchived(it, isArchived) }
-    override suspend fun setTrashedBulk(messageIds: List<Long>, isTrashed: Boolean) =
-        messageIds.forEach { setTrashed(it, isTrashed) }
-    override suspend fun deleteMessages(messageIds: List<Long>) {
-        messages.removeAll { it.id in messageIds }
-    }
-    override suspend fun deleteAllTrashed() {
-        messages.removeAll { it.isTrashed }
-    }
-    override suspend fun setRead(messageId: Long, isRead: Boolean) =
-        update(messageId) { it.copy(isRead = isRead) }
-    override suspend fun setTransactionExcluded(messageId: Long, isExcluded: Boolean) =
-        update(messageId) { it.copy(isTransactionExcluded = isExcluded) }
-    override suspend fun addTagToMessage(messageId: Long, tagId: Long) {
-        messageTags.getOrPut(messageId) { mutableSetOf() }.add(tagId)
-    }
-    override suspend fun removeTagFromMessage(messageId: Long, tagId: Long) {
-        messageTags[messageId]?.remove(tagId)
-    }
-    override suspend fun getTagIdsForMessage(messageId: Long): List<Long> =
-        messageTags[messageId].orEmpty().toList()
-    override suspend fun getAllMessagesOnce(): List<Message> = messages.toList()
-    override suspend fun getTagIdsByMessage(): Map<Long, List<Long>> =
-        messageTags.mapValues { it.value.toList() }
-    override suspend fun replaceTagsForMessage(messageId: Long, tagIds: List<Long>) {
-        messageTags[messageId] = tagIds.toMutableSet()
-    }
-    override suspend fun getMessageCount(): Int = messages.size
-    override suspend fun getKnownDeviceMessageIds(): List<Long> =
-        messages.mapNotNull { it.deviceMessageId }
-    override suspend fun findMessageIdByContent(sender: String, body: String, timestamp: Long): Long? =
-        messages.firstOrNull { it.sender == sender && it.body == body && it.timestamp == timestamp }?.id
-    override suspend fun findUnlinkedMessageByContent(sender: String, body: String, timestamp: Long): Long? = null
-    override suspend fun setDeviceMessageId(messageId: Long, deviceMessageId: Long) =
-        update(messageId) { it.copy(deviceMessageId = deviceMessageId) }
-    override suspend fun reconcileImported(messageId: Long, deviceMessageId: Long, sender: String, timestamp: Long) =
-        update(messageId) { it.copy(deviceMessageId = deviceMessageId, sender = sender, timestamp = timestamp) }
-    override suspend fun deleteDuplicates() = Unit
-    override suspend fun deleteUnlinkedDuplicates() = Unit
-}
-
-private class FakeTransactionRepository : TransactionRepository {
-    val transactions: MutableList<Transaction> = mutableListOf()
-    val accounts: MutableList<Account> = mutableListOf()
-    private var nextId: Long = 1L
-    private var nextAccountId: Long = 1L
-    fun seedTransaction(transaction: Transaction): Long {
-        val id: Long = nextId++
-        transactions.add(transaction.copy(id = id))
-        return id
-    }
-    override fun getAllTransactions(): Flow<List<Transaction>> = flowOf(transactions.toList())
-    override fun getTransactionsInRange(from: Long, to: Long): Flow<List<Transaction>> = flowOf(emptyList())
-    override fun getTransactionsByAccount(accountId: Long): Flow<List<Transaction>> = flowOf(emptyList())
-    override fun getTransactionsByAccountInRange(accountId: Long, from: Long, to: Long): Flow<List<Transaction>> =
-        flowOf(emptyList())
-    override fun getTransactionsByAccounts(accountIds: List<Long>): Flow<List<Transaction>> = flowOf(emptyList())
-    override fun getTransactionsByAccountsInRange(accountIds: List<Long>, from: Long, to: Long): Flow<List<Transaction>> =
-        flowOf(emptyList())
-    override fun getAllAccounts(): Flow<List<Account>> = flowOf(accounts.toList())
-    override suspend fun getAllAccountsOnce(): List<Account> = accounts.toList()
-    override suspend fun getAccountById(id: Long): Account? = accounts.firstOrNull { it.id == id }
-    override suspend fun findAccountByCodeAndTail(bankCode: String, accountTail: String): Account? =
-        accounts.firstOrNull { it.bankCode == bankCode && it.accountTail == accountTail }
-    override suspend fun findAccountByName(name: String): Account? =
-        accounts.firstOrNull { it.bankName == name }
-    override suspend fun insertAccount(account: Account): Long {
-        val id: Long = nextAccountId++
-        accounts.add(account.copy(id = id))
-        return id
-    }
-    override suspend fun updateAccount(account: Account) {
-        val index: Int = accounts.indexOfFirst { it.id == account.id }
-        if (index >= 0) accounts[index] = account
-    }
-    override suspend fun deleteAccount(accountId: Long) {
-        accounts.removeAll { it.id == accountId }
-    }
-    override fun getPendingAccountSuggestions(): Flow<List<AccountSuggestion>> = flowOf(emptyList())
-    override suspend fun recordAccountSuggestion(bankCode: String, accountTail: String) = Unit
-    override suspend fun dismissAccountSuggestion(id: Long) = Unit
-    override suspend fun removeAccountSuggestion(bankCode: String, accountTail: String) = Unit
-    override suspend fun getTransactionForMessage(messageId: Long): Transaction? =
-        transactions.firstOrNull { it.messageId == messageId }
-    override suspend fun getTransactionById(transactionId: Long): Transaction? =
-        transactions.firstOrNull { it.id == transactionId }
-    override suspend fun getTransactionsByAccountsOnce(accountIds: List<Long>): List<Transaction> = emptyList()
-    override suspend fun getTransactionsWithBalanceOnce(): List<Transaction> =
-        transactions.filter { it.balanceAfter != null }
-    override suspend fun insertTransaction(transaction: Transaction): Long = seedTransaction(transaction)
-    override suspend fun updateBalanceAfter(transactionId: Long, balance: Double?) {
-        val index: Int = transactions.indexOfFirst { it.id == transactionId }
-        if (index >= 0) transactions[index] = transactions[index].copy(balanceAfter = balance)
-    }
-    override suspend fun isDuplicate(accountId: Long, amount: Double, transactionTime: String): Boolean = false
-    override suspend fun deleteTransactionsForMessage(messageId: Long) {
-        transactions.removeAll { it.messageId == messageId && !it.isSentinel }
-    }
-    override suspend fun deleteSentinelsForMessage(messageId: Long) {
-        transactions.removeAll { it.messageId == messageId && it.isSentinel }
-    }
-    override suspend fun deleteTransactionById(transactionId: Long) {
-        transactions.removeAll { it.id == transactionId }
-    }
-    override suspend fun deleteAllTransactions() {
-        transactions.clear()
-    }
-}
-
-private class FakeBackupSettings(
-    var themeMode: String = "SYSTEM",
-    var appLockEnabled: Boolean = false
-) : BackupSettingsStore {
-    override suspend fun getThemeMode(): String = themeMode
-    override suspend fun setThemeMode(value: String) {
-        themeMode = value
-    }
-    override suspend fun getAppLockEnabled(): Boolean = appLockEnabled
-    override suspend fun setAppLockEnabled(value: Boolean) {
-        appLockEnabled = value
-    }
-}
 
 private class Device {
     val tagRepository = FakeTagRepository()
@@ -308,6 +69,11 @@ private class Device {
         messageRepository = messageRepository,
         transactionCategorizer = categorizer
     )
+    fun linkTransactionUseCase(): LinkTransactionToMessageUseCase = LinkTransactionToMessageUseCase(
+        transactionRepository = transactionRepository,
+        messageRepository = messageRepository,
+        transactionCategorizer = categorizer
+    )
     fun importUseCase(): ImportDataUseCase = ImportDataUseCase(
         tagRepository = tagRepository,
         filterRepository = filterRepository,
@@ -316,7 +82,8 @@ private class Device {
         backupSettings = settings,
         json = testJson,
         recategorizeTransactionsUseCase = recategorizeUseCase(),
-        toggleTransactionUseCase = toggleTransactionUseCase()
+        toggleTransactionUseCase = toggleTransactionUseCase(),
+        linkTransactionUseCase = linkTransactionUseCase()
     )
     companion object {
         val testJson: Json = Json {
@@ -336,7 +103,8 @@ class ExportImportDataUseCaseTest {
         isTrashed: Boolean = false,
         isOtp: Boolean = false,
         isTransactionExcluded: Boolean = false,
-        body: String? = null
+        body: String? = null,
+        description: String? = null
     ): Message = Message(
         sender = sender,
         senderName = sender,
@@ -347,7 +115,8 @@ class ExportImportDataUseCaseTest {
         isTrashed = isTrashed,
         isOtp = isOtp,
         deviceMessageId = deviceMessageId,
-        isTransactionExcluded = isTransactionExcluded
+        isTransactionExcluded = isTransactionExcluded,
+        description = description
     )
 
     /** Parseable HDFC savings debits (no balance in body, so the 5000.5 override is user data). */
@@ -359,6 +128,13 @@ class ExportImportDataUseCaseTest {
         const val EXCLUDED_SENDER: String = "AD-HDFCBK"
         const val EXCLUDED_BODY: String =
             "Rs.250.00 debited from a/c XX2210 on 11-06-26. -HDFC Bank"
+        /** Not parseable: the user linked a sentinel to it by hand, so the row must travel in the bundle. */
+        const val LINKED_SENDER: String = "AX-SWIGGY"
+        const val LINKED_BODY: String = "Your Swiggy order has been delivered. Enjoy!"
+        const val LINKED_DESCRIPTION: String = "Dinner with friends"
+        /** Plain message carrying only a description. */
+        const val NOTED_SENDER: String = "noted"
+        const val NOTED_DESCRIPTION: String = "Remember to follow up"
     }
 
     private fun transaction(messageId: Long, balanceAfter: Double?): Transaction = Transaction(
@@ -444,7 +220,7 @@ class ExportImportDataUseCaseTest {
             ),
             setOf(source.inboxTagId)
         )
-        source.transactionRepository.insertAccount(
+        val savingsAccountId: Long = source.transactionRepository.insertAccount(
             Account(
                 bankName = "HDFC",
                 accountTail = "2210",
@@ -453,6 +229,32 @@ class ExportImportDataUseCaseTest {
                 bankCode = "HDFC",
                 colorIndex = 1
             )
+        )
+        val linkedMessageId: Long = source.messageRepository.seedMessage(
+            message(
+                sender = LINKED_SENDER,
+                timestamp = 12L,
+                deviceMessageId = 112L,
+                body = LINKED_BODY,
+                description = LINKED_DESCRIPTION
+            ),
+            setOf(source.inboxTagId, financeTagId, hdfcTagId)
+        )
+        source.transactionRepository.seedTransaction(
+            Transaction(
+                messageId = linkedMessageId,
+                accountId = savingsAccountId,
+                amount = 636.94,
+                type = TransactionType.DEBIT,
+                balanceAfter = null,
+                timestamp = 12L,
+                rawMatch = "Balance check: expected 1000.0, reported 363.06",
+                origin = TransactionOrigin.LINKED
+            )
+        )
+        source.messageRepository.seedMessage(
+            message(sender = NOTED_SENDER, timestamp = 13L, deviceMessageId = 113L, description = NOTED_DESCRIPTION),
+            setOf(source.inboxTagId)
         )
         val primaryCardId: Long = source.transactionRepository.insertAccount(
             Account(
@@ -518,7 +320,9 @@ class ExportImportDataUseCaseTest {
             "inboxRemoved" to 107L,
             BALANCE_SENDER to 108L,
             "noDeviceId" to null,
-            EXCLUDED_SENDER to 111L
+            EXCLUDED_SENDER to 111L,
+            LINKED_SENDER to 112L,
+            NOTED_SENDER to 113L
         )
         var timestamp = 1L
         for ((sender, deviceId) in senderToDeviceId) {
@@ -535,6 +339,7 @@ class ExportImportDataUseCaseTest {
                     body = when {
                         isBalance -> BALANCE_BODY
                         isExcluded -> EXCLUDED_BODY
+                        sender == LINKED_SENDER -> LINKED_BODY
                         else -> null
                     }
                 ),
@@ -553,12 +358,13 @@ class ExportImportDataUseCaseTest {
         populateSource(source)
         val exported: String = source.exportUseCase().execute()
         val bundle: BackupBundle = Device.testJson.decodeFromString(BackupBundle.serializer(), exported)
-        assertEquals(5, bundle.version)
+        assertEquals(6, bundle.version)
         val exportedSenders: Set<String> = bundle.messageStates.map { it.sender }.toSet()
         assertEquals(
             setOf(
                 "read", "tagged", "archived", "trashed", "inboxRemoved",
-                BALANCE_SENDER, "noDeviceId", "goneFromDevice", EXCLUDED_SENDER
+                BALANCE_SENDER, "noDeviceId", "goneFromDevice", EXCLUDED_SENDER,
+                LINKED_SENDER, NOTED_SENDER
             ),
             exportedSenders
         )
@@ -569,8 +375,19 @@ class ExportImportDataUseCaseTest {
         val balanceState = bundle.messageStates.first { it.sender == BALANCE_SENDER }
         assertEquals(5000.5, balanceState.balanceAfter!!, 0.0001)
         assertFalse(balanceState.isTransactionExcluded)
+        assertTrue(balanceState.linkedTransactions.isEmpty())
         val excludedState = bundle.messageStates.first { it.sender == EXCLUDED_SENDER }
         assertTrue(excludedState.isTransactionExcluded)
+        val linkedState = bundle.messageStates.first { it.sender == LINKED_SENDER }
+        assertEquals(LINKED_DESCRIPTION, linkedState.description)
+        assertNull(linkedState.balanceAfter)
+        val linkedDto = linkedState.linkedTransactions.single()
+        assertEquals("HDFC", linkedDto.bankCode)
+        assertEquals("2210", linkedDto.accountTail)
+        assertEquals(636.94, linkedDto.amount, 0.0001)
+        assertEquals("DEBIT", linkedDto.type)
+        val notedState = bundle.messageStates.first { it.sender == NOTED_SENDER }
+        assertEquals(NOTED_DESCRIPTION, notedState.description)
         assertEquals(2, bundle.tabs.size)
         assertEquals(4, bundle.accounts.size)
         val savingsDto = bundle.accounts.first { it.accountTail == "2210" }
@@ -602,9 +419,10 @@ class ExportImportDataUseCaseTest {
         assertEquals(0, result.filtersSkipped)
         assertEquals(2, result.tabsRestored)
         assertEquals(4, result.accountsAdded)
-        assertEquals(8, result.messagesRestored)
+        assertEquals(10, result.messagesRestored)
         assertEquals(1, result.messagesUnmatched)
         assertEquals(1, result.balancesRestored)
+        assertEquals(1, result.linkedTransactionsRestored)
         val savings: Account? = target.transactionRepository.findAccountByCodeAndTail("HDFC", "2210")
         val primary: Account? = target.transactionRepository.findAccountByCodeAndTail("HDFC", "8802")
         val addon: Account? = target.transactionRepository.findAccountByCodeAndTail("HDFC", "9911")
@@ -656,6 +474,19 @@ class ExportImportDataUseCaseTest {
         assertTrue(excludedMessage.isTransactionExcluded)
         assertNull(target.transactionRepository.getTransactionForMessage(excludedMessage.id))
         assertEquals(setOf(target.inboxTagId), messages.tagIdsOf(excludedMessage.id))
+        // The hand-linked transaction is recreated against the restored account, tied to the
+        // matched message (its timestamp, its id), carrying the message's description.
+        val linkedMessage: Message = messages.messageBySender(LINKED_SENDER)
+        assertEquals(LINKED_DESCRIPTION, linkedMessage.description)
+        val linkedTransaction: Transaction? = target.transactionRepository.getTransactionForMessage(linkedMessage.id)
+        assertNotNull(linkedTransaction)
+        assertEquals(TransactionOrigin.LINKED, linkedTransaction!!.origin)
+        assertEquals(savings.id, linkedTransaction.accountId)
+        assertEquals(636.94, linkedTransaction.amount, 0.0001)
+        assertEquals(TransactionType.DEBIT, linkedTransaction.type)
+        assertEquals(linkedMessage.timestamp, linkedTransaction.timestamp)
+        assertEquals(setOf(target.inboxTagId, financeTag.id, hdfcTag.id), messages.tagIdsOf(linkedMessage.id))
+        assertEquals(NOTED_DESCRIPTION, messages.messageBySender(NOTED_SENDER).description)
         assertEquals("DARK", target.settings.themeMode)
         assertTrue(target.settings.appLockEnabled)
     }
@@ -774,7 +605,10 @@ class ExportImportDataUseCaseTest {
         assertEquals(2, second.filtersSkipped)
         assertEquals(0, second.accountsAdded)
         assertEquals(4, target.transactionRepository.accounts.size)
-        assertEquals(8, second.messagesRestored)
+        assertEquals(10, second.messagesRestored)
+        assertEquals(1, second.linkedTransactionsRestored)
+        val linkedMessage: Message = target.messageRepository.messageBySender(LINKED_SENDER)
+        assertEquals(1, target.transactionRepository.getTransactionsForMessage(linkedMessage.id).size)
         val excludedMessage: Message = target.messageRepository.messageBySender(EXCLUDED_SENDER)
         assertTrue(excludedMessage.isTransactionExcluded)
         assertNull(target.transactionRepository.getTransactionForMessage(excludedMessage.id))

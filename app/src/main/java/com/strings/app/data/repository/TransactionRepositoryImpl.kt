@@ -6,10 +6,13 @@ import com.strings.app.data.local.db.dao.TransactionDao
 import com.strings.app.data.local.db.entity.AccountEntity
 import com.strings.app.data.local.db.entity.AccountSuggestionEntity
 import com.strings.app.data.local.db.entity.TransactionEntity
+import com.strings.app.data.local.db.entity.TransactionWithDescription
 import com.strings.app.domain.model.Account
 import com.strings.app.domain.model.AccountSuggestion
 import com.strings.app.domain.model.AccountType
+import com.strings.app.domain.model.LedgerEntry
 import com.strings.app.domain.model.Transaction
+import com.strings.app.domain.model.TransactionOrigin
 import com.strings.app.domain.model.TransactionType
 import com.strings.app.domain.repository.TransactionRepository
 import kotlinx.coroutines.flow.Flow
@@ -24,18 +27,8 @@ class TransactionRepositoryImpl(
         return transactionDao.getAllTransactions().map { entities -> entities.map { it.toDomain() } }
     }
 
-    override fun getTransactionsInRange(from: Long, to: Long): Flow<List<Transaction>> {
-        return transactionDao.getTransactionsInRange(from, to).map { entities -> entities.map { it.toDomain() } }
-    }
-
     override fun getTransactionsByAccount(accountId: Long): Flow<List<Transaction>> {
         return transactionDao.getTransactionsByAccount(accountId).map { entities ->
-            entities.map { it.toDomain() }
-        }
-    }
-
-    override fun getTransactionsByAccountInRange(accountId: Long, from: Long, to: Long): Flow<List<Transaction>> {
-        return transactionDao.getTransactionsByAccountInRange(accountId, from, to).map { entities ->
             entities.map { it.toDomain() }
         }
     }
@@ -46,9 +39,13 @@ class TransactionRepositoryImpl(
         }
     }
 
-    override fun getTransactionsByAccountsInRange(accountIds: List<Long>, from: Long, to: Long): Flow<List<Transaction>> {
-        return transactionDao.getTransactionsByAccountsInRange(accountIds, from, to).map { entities ->
-            entities.map { it.toDomain() }
+    override fun getLedgerInRange(from: Long, to: Long): Flow<List<LedgerEntry>> {
+        return transactionDao.getLedgerInRange(from, to).map { rows -> rows.map { it.toDomain() } }
+    }
+
+    override fun getLedgerByAccountsInRange(accountIds: List<Long>, from: Long, to: Long): Flow<List<LedgerEntry>> {
+        return transactionDao.getLedgerByAccountsInRange(accountIds, from, to).map { rows ->
+            rows.map { it.toDomain() }
         }
     }
 
@@ -105,12 +102,20 @@ class TransactionRepositoryImpl(
         accountSuggestionDao.delete(bankCode, accountTail)
     }
 
+    override suspend fun getTransactionsForMessage(messageId: Long): List<Transaction> {
+        return transactionDao.getTransactionsForMessage(messageId).map { it.toDomain() }
+    }
+
     override suspend fun getTransactionForMessage(messageId: Long): Transaction? {
         return transactionDao.getTransactionsForMessage(messageId).firstOrNull()?.toDomain()
     }
 
     override suspend fun getTransactionById(transactionId: Long): Transaction? {
         return transactionDao.getTransactionById(transactionId)?.toDomain()
+    }
+
+    override suspend fun getAllTransactionsOnce(): List<Transaction> {
+        return transactionDao.getAllTransactionsOnce().map { it.toDomain() }
     }
 
     override suspend fun getTransactionsByAccountsOnce(accountIds: List<Long>): List<Transaction> {
@@ -125,6 +130,10 @@ class TransactionRepositoryImpl(
         return transactionDao.insertTransaction(transaction.toEntity())
     }
 
+    override suspend fun updateTransaction(transaction: Transaction) {
+        transactionDao.updateTransaction(transaction.toEntity())
+    }
+
     override suspend fun updateBalanceAfter(transactionId: Long, balance: Double?) {
         transactionDao.updateBalanceAfter(transactionId, balance)
     }
@@ -134,8 +143,8 @@ class TransactionRepositoryImpl(
         return recent.any { it.amount == amount && it.transactionTime == transactionTime }
     }
 
-    override suspend fun deleteTransactionsForMessage(messageId: Long) {
-        transactionDao.deleteByMessageId(messageId)
+    override suspend fun deleteParsedTransactionsForMessage(messageId: Long) {
+        transactionDao.deleteParsedByMessageId(messageId)
     }
 
     override suspend fun deleteSentinelsForMessage(messageId: Long) {
@@ -174,6 +183,11 @@ class TransactionRepositoryImpl(
         isEnabled = isEnabled
     )
 
+    private fun TransactionWithDescription.toDomain(): LedgerEntry = LedgerEntry(
+        transaction = transaction.toDomain(),
+        messageDescription = messageDescription
+    )
+
     private fun TransactionEntity.toDomain(): Transaction = Transaction(
         id = id,
         messageId = messageId,
@@ -185,7 +199,7 @@ class TransactionRepositoryImpl(
         transactionTime = transactionTime,
         timestamp = timestamp,
         rawMatch = rawMatch,
-        isSentinel = isSentinel
+        origin = TransactionOrigin.valueOf(origin)
     )
 
     private fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
@@ -199,6 +213,6 @@ class TransactionRepositoryImpl(
         transactionTime = transactionTime,
         timestamp = timestamp,
         rawMatch = rawMatch,
-        isSentinel = isSentinel
+        origin = origin.name
     )
 }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.MarkunreadMailbox
 import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.MoreVert
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Unarchive
 import androidx.compose.material3.AlertDialog
@@ -47,6 +50,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,8 +70,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.strings.app.domain.model.Message
 import com.strings.app.domain.model.Tag
+import com.strings.app.domain.model.Transaction
 import com.strings.app.ui.common.messageSharedBounds
 import com.strings.app.ui.components.TagChip
+import com.strings.app.ui.finance.EditDescriptionDialog
+import com.strings.app.ui.finance.RemoveLinkedTransactionDialog
 import com.strings.app.ui.finance.SetBalanceDialog
 import com.strings.app.ui.finance.formatDiscrepancyMessage
 import com.strings.app.ui.theme.Spacing
@@ -85,10 +92,14 @@ import java.util.Locale
 fun MessageDetailScreen(
     messageId: Long,
     onNavigateBack: () -> Unit,
+    onNavigateToLinkTransaction: (Long) -> Unit,
     viewModel: MessageDetailViewModel = koinViewModel()
 ) {
-    LaunchedEffect(messageId) {
+    // Re-read on every resume so state changed on a screen pushed on top of this one
+    // (e.g. relinking the transaction to another message) is reflected when we come back.
+    LifecycleResumeEffect(messageId) {
         viewModel.loadMessage(messageId)
+        onPauseOrDispose { }
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showTrashConfirm by remember { mutableStateOf(false) }
@@ -96,6 +107,8 @@ fun MessageDetailScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showManageTags by remember { mutableStateOf(false) }
     var showSetBalance by remember { mutableStateOf(false) }
+    var showEditDescription by remember { mutableStateOf(false) }
+    var showRemoveLinked by remember { mutableStateOf(false) }
     val message = state.message
     val clipboard = LocalClipboard.current
     val context = LocalContext.current
@@ -112,6 +125,7 @@ fun MessageDetailScreen(
                 TransactionToggleEvent.EXCLUDED -> "Marked as not a transaction"
                 TransactionToggleEvent.INCLUDED -> "Transaction detected"
                 TransactionToggleEvent.NOT_RECOGNIZED -> "No transaction detected in this message"
+                TransactionToggleEvent.LINK_REMOVED -> "Linked transaction removed"
             }
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
         }
@@ -203,7 +217,20 @@ fun MessageDetailScreen(
                                     showManageTags = true
                                 }
                             )
-                            if (state.transaction != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (message.description == null) "Add description" else "Edit description")
+                                },
+                                trailingIcon = {
+                                    Icon(Icons.Default.EditNote, contentDescription = null)
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showEditDescription = true
+                                }
+                            )
+                            val transaction: Transaction? = state.transaction
+                            if (transaction != null) {
                                 DropdownMenuItem(
                                     text = { Text("Set balance") },
                                     trailingIcon = {
@@ -214,16 +241,39 @@ fun MessageDetailScreen(
                                         showSetBalance = true
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Not a transaction") },
-                                    trailingIcon = {
-                                        Icon(Icons.Default.MoneyOff, contentDescription = null)
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        viewModel.toggleTransaction()
-                                    }
-                                )
+                                if (transaction.isLinked) {
+                                    DropdownMenuItem(
+                                        text = { Text("Relink to message") },
+                                        trailingIcon = {
+                                            Icon(Icons.Outlined.Link, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            onNavigateToLinkTransaction(transaction.id)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Remove transaction") },
+                                        trailingIcon = {
+                                            Icon(Icons.Outlined.LinkOff, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            showRemoveLinked = true
+                                        }
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Not a transaction") },
+                                        trailingIcon = {
+                                            Icon(Icons.Default.MoneyOff, contentDescription = null)
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            viewModel.toggleTransaction()
+                                        }
+                                    )
+                                }
                             } else {
                                 DropdownMenuItem(
                                     text = { Text("Mark as transaction") },
@@ -320,6 +370,12 @@ fun MessageDetailScreen(
                             modifier = Modifier.padding(Spacing.lg)
                         )
                     }
+                    message.description?.let { description ->
+                        MessageDescriptionCard(
+                            description = description,
+                            onEdit = { showEditDescription = true }
+                        )
+                    }
                     if (message.isOtp && message.otpCode != null) {
                         OtpDetailCard(otpCode = message.otpCode)
                     }
@@ -397,6 +453,25 @@ fun MessageDetailScreen(
                 viewModel.setBalanceAfter(balance)
                 showSetBalance = false
             }
+        )
+    }
+    if (showEditDescription && message != null) {
+        EditDescriptionDialog(
+            currentDescription = message.description,
+            onDismiss = { showEditDescription = false },
+            onConfirm = { description ->
+                viewModel.setDescription(description)
+                showEditDescription = false
+            }
+        )
+    }
+    if (showRemoveLinked) {
+        RemoveLinkedTransactionDialog(
+            onConfirm = {
+                showRemoveLinked = false
+                viewModel.removeLinkedTransaction()
+            },
+            onDismiss = { showRemoveLinked = false }
         )
     }
 }

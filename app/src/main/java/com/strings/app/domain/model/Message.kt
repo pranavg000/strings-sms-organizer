@@ -17,5 +17,7 @@ data class Message(
      * skips parsing while it is set, so a batch re-categorization can't resurrect it.
      */
     val isTransactionExcluded: Boolean = false,
+    /** Free-text note the user attached to this message; null until they write one. */
+    val description: String? = null,
     val tags: List<Tag> = emptyList()
 )

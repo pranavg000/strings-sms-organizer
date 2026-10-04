@@ -133,6 +133,9 @@ fun SettingsScreen(
                     if (result.balancesRestored > 0) {
                         append(" incl. ${result.balancesRestored} balances")
                     }
+                    if (result.linkedTransactionsRestored > 0) {
+                        append("; ${result.linkedTransactionsRestored} linked transactions")
+                    }
                     if (result.messagesUnmatched > 0) {
                         append("; ${result.messagesUnmatched} messages not found on this device")
                     }

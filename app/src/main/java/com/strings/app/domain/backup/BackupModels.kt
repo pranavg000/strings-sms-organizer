@@ -17,7 +17,11 @@ import kotlinx.serialization.Serializable
 //     import (accounts default to empty).
 // 5 - per-message "not a transaction" override (MessageStateDto.isTransactionExcluded).
 //     Older bundles still import (defaults to false).
-const val BACKUP_VERSION: Int = 5
+// 6 - per-message description (MessageStateDto.description) and user-linked
+//     transactions (MessageStateDto.linkedTransactions: sentinels the user attached
+//     to a message by hand; not re-derivable, so amount/type/account travel along).
+//     Older bundles still import (both default to empty).
+const val BACKUP_VERSION: Int = 6
 
 @Serializable
 data class BackupBundle(
@@ -90,7 +94,23 @@ data class MessageStateDto(
     val isTrashed: Boolean = false,
     val tagNames: List<String> = emptyList(),
     val balanceAfter: Double? = null,
-    val isTransactionExcluded: Boolean = false
+    val isTransactionExcluded: Boolean = false,
+    val description: String? = null,
+    val linkedTransactions: List<LinkedTransactionDto> = emptyList()
+)
+
+/**
+ * A transaction the user linked to the message by hand (a converted sentinel). The account is
+ * referenced by (bankCode, accountTail) because ids differ across devices.
+ */
+@Serializable
+data class LinkedTransactionDto(
+    val bankCode: String,
+    val accountTail: String,
+    val amount: Double,
+    val type: String,
+    val balanceAfter: Double? = null,
+    val rawMatch: String = ""
 )
 
 @Serializable
@@ -107,5 +127,6 @@ data class ImportResult(
     val accountsAdded: Int = 0,
     val messagesRestored: Int = 0,
     val messagesUnmatched: Int = 0,
-    val balancesRestored: Int = 0
+    val balancesRestored: Int = 0,
+    val linkedTransactionsRestored: Int = 0
 )

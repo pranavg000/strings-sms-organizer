@@ -75,10 +75,15 @@ object HelpTexts {
             "under Manage accounts \u2014 pick the bank and enter the last digits of the " +
             "account or card number, and matching SMS alerts turn into transactions. " +
             "When a reported balance doesn't tally with the transactions seen so far, the gap " +
-            "is kept as an \u201Cunaccounted\u201D entry in the list until you dismiss it. " +
+            "is kept as an \u201Cunaccounted\u201D entry in the list. Link it to the SMS it " +
+            "belongs to (\u201CLink to message\u201D opens a search) and it becomes a regular " +
+            "transaction that opens that message; relink or remove it later from its menu, or " +
+            "dismiss the entry if you've accounted for it some other way. " +
             "Detection can be corrected per message: choose \u201CNot a transaction\u201D from a " +
             "ledger row's menu (or the message's menu) to drop a wrong match for good, and " +
-            "\u201CMark as transaction\u201D on a missed message to run detection on it again."
+            "\u201CMark as transaction\u201D on a missed message to run detection on it again. " +
+            "Any message can carry a description (from its menu); for transactions a short " +
+            "preview of it shows on the ledger row."
     const val ACCOUNTS_LIST: String =
         "Add each bank account, card, or wallet you want tracked. Transactions are detected " +
             "from that bank's SMS alerts using the last digits you enter here. When a " +
@@ -101,9 +106,15 @@ object HelpTexts {
             "be switched on. Turning one off stops new transactions without deleting history."
     const val SENTINEL_INFO: String =
         "This entry stands in for money that moved without a matching SMS \u2014 the reported " +
-            "balance didn't tally with the transactions seen before it. Dismiss it from its menu " +
-            "once you've accounted for it."
+            "balance didn't tally with the transactions seen before it. From its menu you can " +
+            "link it to the message it belongs to, or dismiss it once you've accounted for it."
     const val SENTINEL_DISMISS_BODY: String =
         "This removes the placeholder for the unaccounted amount from the ledger and its " +
             "monthly totals. This can't be undone."
+    const val LINKED_REMOVE_BODY: String =
+        "This deletes the transaction you linked by hand from the ledger and its monthly " +
+            "totals. The message itself is kept. This can't be undone."
+    const val MESSAGE_DESCRIPTION: String =
+        "A private note on this message, shown here in full. If the message is a transaction, " +
+            "the first line also appears as a preview in the Finance ledger."
 }

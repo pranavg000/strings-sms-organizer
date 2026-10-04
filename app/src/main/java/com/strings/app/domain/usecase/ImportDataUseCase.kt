@@ -5,6 +5,7 @@ import com.strings.app.domain.backup.BACKUP_VERSION
 import com.strings.app.domain.backup.BackupBundle
 import com.strings.app.domain.backup.BackupSettingsStore
 import com.strings.app.domain.backup.ImportResult
+import com.strings.app.domain.backup.LinkedTransactionDto
 import com.strings.app.domain.backup.MessageStateDto
 import com.strings.app.domain.model.Account
 import com.strings.app.domain.model.AccountType
@@ -15,6 +16,8 @@ import com.strings.app.domain.model.Message
 import com.strings.app.domain.model.TabConfig
 import com.strings.app.domain.model.Tag
 import com.strings.app.domain.model.Transaction
+import com.strings.app.domain.model.TransactionOrigin
+import com.strings.app.domain.model.TransactionType
 import com.strings.app.domain.model.prune
 import com.strings.app.domain.repository.FilterRepository
 import com.strings.app.domain.repository.MessageRepository
@@ -31,12 +34,14 @@ class ImportDataUseCase(
     private val backupSettings: BackupSettingsStore,
     private val json: Json,
     private val recategorizeTransactionsUseCase: RecategorizeTransactionsUseCase,
-    private val toggleTransactionUseCase: ToggleTransactionUseCase
+    private val toggleTransactionUseCase: ToggleTransactionUseCase,
+    private val linkTransactionUseCase: LinkTransactionToMessageUseCase
 ) {
     private data class MessageStateResult(
         val restored: Int,
         val unmatched: Int,
-        val balancesRestored: Int
+        val balancesRestored: Int,
+        val linkedRestored: Int
     )
 
     suspend fun execute(jsonString: String): ImportResult {
@@ -71,7 +76,8 @@ class ImportDataUseCase(
             accountsAdded = accountsAdded,
             messagesRestored = stateResult.restored,
             messagesUnmatched = stateResult.unmatched,
-            balancesRestored = stateResult.balancesRestored
+            balancesRestored = stateResult.balancesRestored,
+            linkedTransactionsRestored = stateResult.linkedRestored
         )
     }
 
@@ -225,15 +231,17 @@ class ImportDataUseCase(
      * Matches each exported message state to a local message -- by
      * deviceMessageId first (stable on the same device), then by
      * (sender, timestamp) -- and restores flags, the exact tag set, the
-     * "not a transaction" override, and any balance override on the
-     * message's re-parsed transaction. The override is applied after the
-     * tag set so the Finance tags it strips can't be re-added by the restore.
+     * "not a transaction" override, the description, any balance override on
+     * the message's re-parsed transaction, and the transactions the user
+     * linked to it by hand. The override is applied after the tag set so the
+     * Finance tags it strips can't be re-added by the restore; linked
+     * transactions come last so their Finance tags survive it.
      */
     private suspend fun importMessageStates(
         bundle: BackupBundle,
         tagIdByName: Map<String, Long>
     ): MessageStateResult {
-        if (bundle.messageStates.isEmpty()) return MessageStateResult(0, 0, 0)
+        if (bundle.messageStates.isEmpty()) return MessageStateResult(0, 0, 0, 0)
         val allMessages: List<Message> = messageRepository.getAllMessagesOnce()
         val byDeviceId: Map<Long, Message> = allMessages
             .mapNotNull { message -> message.deviceMessageId?.let { it to message } }
@@ -243,6 +251,7 @@ class ImportDataUseCase(
         var restored = 0
         var unmatched = 0
         var balancesRestored = 0
+        var linkedRestored = 0
         for (dto: MessageStateDto in bundle.messageStates) {
             val message: Message? = dto.deviceMessageId?.let { byDeviceId[it] }
                 ?: byContent[dto.sender to dto.timestamp]
@@ -268,8 +277,13 @@ class ImportDataUseCase(
             } else if (!dto.isTransactionExcluded && message.isTransactionExcluded) {
                 toggleTransactionUseCase.include(message.id)
             }
+            if (dto.description != message.description) {
+                messageRepository.setDescription(message.id, dto.description)
+            }
             if (dto.balanceAfter != null) {
-                val transaction: Transaction? = transactionRepository.getTransactionForMessage(message.id)
+                val transaction: Transaction? = transactionRepository
+                    .getTransactionsForMessage(message.id)
+                    .firstOrNull { it.origin == TransactionOrigin.PARSED }
                 if (transaction != null && transaction.balanceAfter != dto.balanceAfter) {
                     transactionRepository.updateBalanceAfter(transaction.id, dto.balanceAfter)
                 }
@@ -277,13 +291,53 @@ class ImportDataUseCase(
                     balancesRestored++
                 }
             }
+            linkedRestored += importLinkedTransactions(message, dto.linkedTransactions)
             restored++
         }
         return MessageStateResult(
             restored = restored,
             unmatched = unmatched,
-            balancesRestored = balancesRestored
+            balancesRestored = balancesRestored,
+            linkedRestored = linkedRestored
         )
+    }
+
+    /**
+     * Recreates the transactions the user linked to [message]. A linked transaction already
+     * present with the same account, amount, and type is reused (balance synced) so that
+     * re-importing the same bundle never duplicates rows.
+     */
+    private suspend fun importLinkedTransactions(message: Message, dtos: List<LinkedTransactionDto>): Int {
+        if (dtos.isEmpty()) return 0
+        var restored = 0
+        for (dto: LinkedTransactionDto in dtos) {
+            val type: TransactionType = try {
+                TransactionType.valueOf(dto.type)
+            } catch (e: IllegalArgumentException) {
+                continue
+            }
+            val account: Account = transactionRepository
+                .findAccountByCodeAndTail(dto.bankCode, dto.accountTail) ?: continue
+            val existing: Transaction? = transactionRepository.getTransactionsForMessage(message.id)
+                .firstOrNull { it.isLinked && it.accountId == account.id && it.amount == dto.amount && it.type == type }
+            if (existing != null) {
+                if (existing.balanceAfter != dto.balanceAfter) {
+                    transactionRepository.updateBalanceAfter(existing.id, dto.balanceAfter)
+                }
+                restored++
+                continue
+            }
+            val created: Long? = linkTransactionUseCase.create(
+                messageId = message.id,
+                accountId = account.id,
+                amount = dto.amount,
+                type = type,
+                balanceAfter = dto.balanceAfter,
+                rawMatch = dto.rawMatch
+            )
+            if (created != null) restored++
+        }
+        return restored
     }
 
     private suspend fun importSettings(bundle: BackupBundle) {

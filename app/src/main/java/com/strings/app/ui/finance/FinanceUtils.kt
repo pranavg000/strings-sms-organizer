@@ -86,6 +86,18 @@ fun formatSignedAmount(amount: Double, type: TransactionType): String {
     return "$prefix ${CURRENCY_FORMAT.format(amount)}"
 }
 
+const val DESCRIPTION_PREVIEW_CHARS: Int = 60
+
+/**
+ * One-line teaser of a message description for ledger rows: whitespace collapsed and
+ * capped at [maxChars] with an ellipsis. The full text lives on the message detail screen.
+ */
+fun descriptionPreview(description: String, maxChars: Int = DESCRIPTION_PREVIEW_CHARS): String {
+    val singleLine: String = description.replace(Regex("\\s+"), " ").trim()
+    if (singleLine.length <= maxChars) return singleLine
+    return singleLine.take(maxChars).trimEnd() + "\u2026"
+}
+
 @Composable
 fun creditColor(): Color {
     return if (LocalAppDarkTheme.current) TransactionColors.creditDark else TransactionColors.creditLight

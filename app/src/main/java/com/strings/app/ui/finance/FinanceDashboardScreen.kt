@@ -1,8 +1,6 @@
 package com.strings.app.ui.finance
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -23,17 +20,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.PieChart
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.strings.app.domain.model.Account
+import com.strings.app.domain.model.LedgerEntry
 import com.strings.app.domain.model.Transaction
 import com.strings.app.domain.model.TransactionType
 import com.strings.app.ui.common.accountSharedBounds
@@ -76,6 +69,7 @@ fun FinanceDashboardScreen(
     onNavigateToMessage: (Long) -> Unit,
     onNavigateToAccountDetail: (Long) -> Unit,
     onNavigateToManageAccounts: () -> Unit,
+    onNavigateToLinkTransaction: (Long) -> Unit,
     viewModel: FinanceDashboardViewModel = koinViewModel()
 ) {
     val pagerState = rememberPagerState(pageCount = { 2 })
@@ -145,6 +139,7 @@ fun FinanceDashboardScreen(
                 0 -> OverviewTab(
                     viewModel = viewModel,
                     onNavigateToMessage = onNavigateToMessage,
+                    onNavigateToLinkTransaction = onNavigateToLinkTransaction,
                     onShowSentinelInfo = {
                         coroutineScope.launch { snackbarHostState.showSnackbar(HelpTexts.SENTINEL_INFO) }
                     },
@@ -175,16 +170,32 @@ fun FinanceDashboardScreen(
 private fun OverviewTab(
     viewModel: FinanceDashboardViewModel,
     onNavigateToMessage: (Long) -> Unit,
+    onNavigateToLinkTransaction: (Long) -> Unit,
     onShowSentinelInfo: () -> Unit,
     onExcludeTransaction: (Long) -> Unit
 ) {
     val currentMonth: YearMonth by viewModel.currentMonth.collectAsState()
     val totalBalance: Double? by viewModel.totalBalance.collectAsState()
     val summary: MonthSummary by viewModel.summary.collectAsState()
-    val transactions: List<Transaction>? by viewModel.overviewTransactions.collectAsState()
+    val entries: List<LedgerEntry>? by viewModel.overviewEntries.collectAsState()
     val accountsById: Map<Long, Account> by viewModel.accountsById.collectAsState()
     var balanceEditTransaction: Transaction? by remember { mutableStateOf(null) }
     var sentinelToDismiss: Transaction? by remember { mutableStateOf(null) }
+    var linkedToRemove: Transaction? by remember { mutableStateOf(null) }
+    var descriptionEdit: LedgerEntry? by remember { mutableStateOf(null) }
+    val actions: LedgerActions = remember(onNavigateToMessage, onNavigateToLinkTransaction, onShowSentinelInfo, onExcludeTransaction) {
+        LedgerActions(
+            onClick = { transaction ->
+                if (transaction.isSentinel) onShowSentinelInfo() else onNavigateToMessage(transaction.messageId)
+            },
+            onSetBalance = { transaction -> balanceEditTransaction = transaction },
+            onEditDescription = { entry -> descriptionEdit = entry },
+            onLinkToMessage = { transaction -> onNavigateToLinkTransaction(transaction.id) },
+            onDismissSentinel = { transaction -> sentinelToDismiss = transaction },
+            onRemoveLinked = { transaction -> linkedToRemove = transaction },
+            onExcludeTransaction = { transaction -> onExcludeTransaction(transaction.messageId) }
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -203,25 +214,16 @@ private fun OverviewTab(
             )
         }
         when {
-            transactions == null -> item(key = "loading") {
+            entries == null -> item(key = "loading") {
                 FinancePlaceholder(text = "Loading…")
             }
-            transactions.orEmpty().isEmpty() -> item(key = "empty") {
+            entries.orEmpty().isEmpty() -> item(key = "empty") {
                 FinancePlaceholder(text = "No transactions this month")
             }
             else -> transactionItems(
-                transactions = transactions.orEmpty(),
+                entries = entries.orEmpty(),
                 accountNameFor = { transaction -> accountsById[transaction.accountId]?.displayName },
-                onClick = { transaction ->
-                    if (transaction.isSentinel) {
-                        onShowSentinelInfo()
-                    } else {
-                        onNavigateToMessage(transaction.messageId)
-                    }
-                },
-                onSetBalance = { transaction -> balanceEditTransaction = transaction },
-                onDismissSentinel = { transaction -> sentinelToDismiss = transaction },
-                onExcludeTransaction = { transaction -> onExcludeTransaction(transaction.messageId) }
+                actions = actions
             )
         }
     }
@@ -242,6 +244,25 @@ private fun OverviewTab(
                 sentinelToDismiss = null
             },
             onDismiss = { sentinelToDismiss = null }
+        )
+    }
+    linkedToRemove?.let { txn ->
+        RemoveLinkedTransactionDialog(
+            onConfirm = {
+                viewModel.removeLinkedTransaction(txn.id)
+                linkedToRemove = null
+            },
+            onDismiss = { linkedToRemove = null }
+        )
+    }
+    descriptionEdit?.let { entry ->
+        EditDescriptionDialog(
+            currentDescription = entry.messageDescription,
+            onDismiss = { descriptionEdit = null },
+            onConfirm = { description ->
+                viewModel.setMessageDescription(entry.transaction.messageId, description)
+                descriptionEdit = null
+            }
         )
     }
 }
@@ -482,130 +503,4 @@ fun MonthNavigationRow(
         }
     }
 }
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun TransactionRow(
-    transaction: Transaction,
-    accountName: String? = null,
-    onClick: () -> Unit,
-    onSetBalance: () -> Unit,
-    onDismissSentinel: () -> Unit = {},
-    onExcludeTransaction: () -> Unit = {}
-) {
-    var showMenu: Boolean by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = if (transaction.isSentinel) null else onSetBalance,
-                onLongClickLabel = "Set balance"
-            )
-            .padding(vertical = Spacing.sm),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            if (accountName != null) {
-                Text(
-                    text = accountName,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-            if (transaction.isSentinel) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                ) {
-                    Icon(
-                        Icons.Outlined.Warning,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (transaction.type == TransactionType.DEBIT) {
-                            "Unaccounted spend"
-                        } else {
-                            "Unaccounted credit"
-                        },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-            Text(
-                text = formatTransactionClock(transaction.timestamp, transaction.transactionTime),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Text(
-            text = formatSignedAmount(transaction.amount, transaction.type),
-            style = MaterialTheme.typography.titleMedium,
-            color = amountColor(transaction.type)
-        )
-        Box {
-            IconButton(onClick = { showMenu = true }) {
-                Icon(
-                    Icons.Default.MoreVert,
-                    contentDescription = "More options",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                if (transaction.isSentinel) {
-                    DropdownMenuItem(
-                        text = { Text("Dismiss") },
-                        onClick = {
-                            showMenu = false
-                            onDismissSentinel()
-                        }
-                    )
-                } else {
-                    DropdownMenuItem(
-                        text = { Text("Set balance") },
-                        onClick = {
-                            showMenu = false
-                            onSetBalance()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Not a transaction") },
-                        onClick = {
-                            showMenu = false
-                            onExcludeTransaction()
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Confirmation for removing a sentinel ("unaccounted") transaction. Deleting it is permanent --
- * the discrepancy is only recomputed if the anchor's balance is checked again.
- */
-@Composable
-internal fun DismissSentinelDialog(
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Dismiss unaccounted amount?") },
-        text = { Text(HelpTexts.SENTINEL_DISMISS_BODY) },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text("Dismiss") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
 

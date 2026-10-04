@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.strings.app.domain.model.Account
 import com.strings.app.domain.model.AccountType
+import com.strings.app.domain.model.LedgerEntry
 import com.strings.app.domain.model.Transaction
 import com.strings.app.domain.model.TransactionType
 import com.strings.app.ui.common.accountSharedBounds
@@ -52,19 +53,50 @@ fun AccountDetailScreen(
     accountId: Long,
     onNavigateBack: () -> Unit,
     onNavigateToMessage: (Long) -> Unit,
+    onNavigateToLinkTransaction: (Long) -> Unit,
     viewModel: AccountDetailViewModel = koinViewModel { parametersOf(accountId) }
 ) {
     val account: Account? by viewModel.account.collectAsState()
     val currentMonth: YearMonth by viewModel.currentMonth.collectAsState()
     val estimatedBalance: Double? by viewModel.estimatedBalance.collectAsState()
     val summary: MonthSummary by viewModel.monthlySummary.collectAsState()
-    val transactions: List<Transaction>? by viewModel.transactions.collectAsState()
+    val entries: List<LedgerEntry>? by viewModel.entries.collectAsState()
     val isFamily: Boolean by viewModel.isFamily.collectAsState()
     val familyAccountsById: Map<Long, Account> by viewModel.familyAccountsById.collectAsState()
     var balanceEditTransaction: Transaction? by remember { mutableStateOf(null) }
     var sentinelToDismiss: Transaction? by remember { mutableStateOf(null) }
+    var linkedToRemove: Transaction? by remember { mutableStateOf(null) }
+    var descriptionEdit: LedgerEntry? by remember { mutableStateOf(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val actions: LedgerActions = remember(onNavigateToMessage, onNavigateToLinkTransaction) {
+        LedgerActions(
+            onClick = { transaction ->
+                if (transaction.isSentinel) {
+                    coroutineScope.launch { snackbarHostState.showSnackbar(HelpTexts.SENTINEL_INFO) }
+                } else {
+                    onNavigateToMessage(transaction.messageId)
+                }
+            },
+            onSetBalance = { transaction -> balanceEditTransaction = transaction },
+            onEditDescription = { entry -> descriptionEdit = entry },
+            onLinkToMessage = { transaction -> onNavigateToLinkTransaction(transaction.id) },
+            onDismissSentinel = { transaction -> sentinelToDismiss = transaction },
+            onRemoveLinked = { transaction -> linkedToRemove = transaction },
+            onExcludeTransaction = { transaction ->
+                viewModel.excludeTransaction(transaction.messageId)
+                coroutineScope.launch {
+                    val result: SnackbarResult = snackbarHostState.showSnackbar(
+                        message = "Marked as not a transaction",
+                        actionLabel = "Undo"
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.includeTransaction(transaction.messageId)
+                    }
+                }
+            }
+        )
+    }
     LaunchedEffect(Unit) {
         viewModel.balanceDiscrepancies.collect { discrepancy ->
             snackbarHostState.showSnackbar(formatDiscrepancyMessage(discrepancy))
@@ -112,40 +144,18 @@ fun AccountDetailScreen(
                 )
             }
             when {
-                transactions == null -> item(key = "loading") {
+                entries == null -> item(key = "loading") {
                     FinancePlaceholder(text = "Loading…")
                 }
-                transactions.orEmpty().isEmpty() -> item(key = "empty") {
+                entries.orEmpty().isEmpty() -> item(key = "empty") {
                     FinancePlaceholder(text = "No transactions this month")
                 }
                 else -> transactionItems(
-                    transactions = transactions.orEmpty(),
+                    entries = entries.orEmpty(),
                     accountNameFor = { transaction ->
                         if (isFamily) familyAccountsById[transaction.accountId]?.displayName else null
                     },
-                    onClick = { transaction ->
-                        if (transaction.isSentinel) {
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar(HelpTexts.SENTINEL_INFO)
-                            }
-                        } else {
-                            onNavigateToMessage(transaction.messageId)
-                        }
-                    },
-                    onSetBalance = { transaction -> balanceEditTransaction = transaction },
-                    onDismissSentinel = { transaction -> sentinelToDismiss = transaction },
-                    onExcludeTransaction = { transaction ->
-                        viewModel.excludeTransaction(transaction.messageId)
-                        coroutineScope.launch {
-                            val result: SnackbarResult = snackbarHostState.showSnackbar(
-                                message = "Marked as not a transaction",
-                                actionLabel = "Undo"
-                            )
-                            if (result == SnackbarResult.ActionPerformed) {
-                                viewModel.includeTransaction(transaction.messageId)
-                            }
-                        }
-                    }
+                    actions = actions
                 )
             }
         }
@@ -167,6 +177,25 @@ fun AccountDetailScreen(
                 sentinelToDismiss = null
             },
             onDismiss = { sentinelToDismiss = null }
+        )
+    }
+    linkedToRemove?.let { txn ->
+        RemoveLinkedTransactionDialog(
+            onConfirm = {
+                viewModel.removeLinkedTransaction(txn.id)
+                linkedToRemove = null
+            },
+            onDismiss = { linkedToRemove = null }
+        )
+    }
+    descriptionEdit?.let { entry ->
+        EditDescriptionDialog(
+            currentDescription = entry.messageDescription,
+            onDismiss = { descriptionEdit = null },
+            onConfirm = { description ->
+                viewModel.setMessageDescription(entry.transaction.messageId, description)
+                descriptionEdit = null
+            }
         )
     }
 }

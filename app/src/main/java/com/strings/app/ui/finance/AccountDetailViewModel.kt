@@ -3,12 +3,15 @@ package com.strings.app.ui.finance
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.strings.app.domain.model.Account
+import com.strings.app.domain.model.LedgerEntry
 import com.strings.app.domain.model.Transaction
 import com.strings.app.domain.model.TransactionType
+import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TransactionRepository
 import com.strings.app.domain.transaction.AccountFamilies
 import com.strings.app.domain.transaction.BalanceDiscrepancy
 import com.strings.app.domain.usecase.CheckBalanceDiscrepancyUseCase
+import com.strings.app.domain.usecase.LinkTransactionToMessageUseCase
 import com.strings.app.domain.usecase.ToggleTransactionUseCase
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,8 +29,10 @@ import java.time.YearMonth
 
 class AccountDetailViewModel(
     private val transactionRepository: TransactionRepository,
+    private val messageRepository: MessageRepository,
     private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase,
     private val toggleTransaction: ToggleTransactionUseCase,
+    private val linkTransaction: LinkTransactionToMessageUseCase,
     private val accountId: Long
 ) : ViewModel() {
 
@@ -62,11 +67,15 @@ class AccountDetailViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // Starts as null (= loading) so the UI doesn't flash the empty state on first load.
-    val transactions: StateFlow<List<Transaction>?> = combine(familyAccountIds, monthRange) { ids, (from, to) ->
+    val entries: StateFlow<List<LedgerEntry>?> = combine(familyAccountIds, monthRange) { ids, (from, to) ->
         ids to (from to to)
     }.flatMapLatest { (ids, range) ->
-        transactionRepository.getTransactionsByAccountsInRange(ids, range.first, range.second)
+        transactionRepository.getLedgerByAccountsInRange(ids, range.first, range.second)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val transactions: StateFlow<List<Transaction>?> = entries
+        .map { list -> list?.map { it.transaction } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val allFamilyTransactions: StateFlow<List<Transaction>> = familyAccountIds
         .flatMapLatest { ids -> transactionRepository.getTransactionsByAccounts(ids) }
@@ -104,6 +113,16 @@ class AccountDetailViewModel(
         viewModelScope.launch {
             transactionRepository.deleteTransactionById(transactionId)
         }
+    }
+
+    /** Deletes a transaction the user linked by hand (confirmed in the UI). */
+    fun removeLinkedTransaction(transactionId: Long) {
+        viewModelScope.launch { linkTransaction.remove(transactionId) }
+    }
+
+    /** Edits the description of the message behind a ledger row; the join re-emits the preview. */
+    fun setMessageDescription(messageId: Long, description: String?) {
+        viewModelScope.launch { messageRepository.setDescription(messageId, description) }
     }
 
     /** "Not a transaction" from a ledger row; the Room flows drop the row automatically. */

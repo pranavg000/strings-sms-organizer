@@ -2,6 +2,7 @@ package com.strings.app.domain.usecase
 
 import com.strings.app.domain.model.Account
 import com.strings.app.domain.model.Transaction
+import com.strings.app.domain.model.TransactionOrigin
 import com.strings.app.domain.model.TransactionType
 import com.strings.app.domain.repository.TransactionRepository
 import com.strings.app.domain.transaction.AccountFamilies
@@ -18,9 +19,10 @@ import kotlin.math.abs
  * A detected gap is also persisted as a "sentinel" transaction: a real ledger row (flagged
  * `isSentinel`) for the unaccounted amount, timestamped just before the anchor so it sits inside
  * the reconciled window without shifting the estimated balance (which starts at the anchor's
- * reported balance). It stays visible on the dashboard until the user dismisses it. The sentinel
- * shares the anchor's messageId, has no balanceAfter (it can never become an anchor itself), and
- * is replaced -- not stacked -- when the same anchor is re-checked after a balance edit.
+ * reported balance). It stays visible on the dashboard until the user dismisses it or links it
+ * to a message (`LinkTransactionToMessageUseCase`). The sentinel shares the anchor's messageId,
+ * has no balanceAfter (it can never become an anchor itself), and is replaced -- not stacked --
+ * when the same anchor is re-checked after a balance edit.
  */
 class CheckBalanceDiscrepancyUseCase(
     private val transactionRepository: TransactionRepository,
@@ -56,7 +58,7 @@ class CheckBalanceDiscrepancyUseCase(
                 timestamp = anchor.timestamp - 1,
                 rawMatch = "Balance check: expected ${discrepancy.expectedBalance}, " +
                     "reported ${discrepancy.reportedBalance}",
-                isSentinel = true
+                origin = TransactionOrigin.SENTINEL
             )
         )
     }

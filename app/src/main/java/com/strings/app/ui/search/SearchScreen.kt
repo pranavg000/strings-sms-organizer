@@ -75,17 +75,25 @@ import java.time.ZoneOffset
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Full-text message search. With [onPickMessage] set the screen becomes a single-choice
+ * picker: tapping a result hands its id back instead of opening it, multi-select is off,
+ * and [pickPrompt] explains what is being chosen.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     onNavigateBack: () -> Unit,
     onNavigateToMessage: (Long) -> Unit,
     onNavigateToFilterEdit: () -> Unit,
+    pickPrompt: String? = null,
+    onPickMessage: ((Long) -> Unit)? = null,
     viewModel: SearchViewModel = koinViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedIds by viewModel.selectedMessageIds.collectAsStateWithLifecycle()
-    val hasSelection: Boolean = selectedIds.isNotEmpty()
+    val pickMode: Boolean = onPickMessage != null
+    val hasSelection: Boolean = !pickMode && selectedIds.isNotEmpty()
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -180,6 +188,14 @@ fun SearchScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            if (pickMode && pickPrompt != null) {
+                Text(
+                    text = pickPrompt,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
+                )
+            }
             SearchFilterRow(
                 state = state,
                 onToggleTag = { viewModel.toggleTagFilter(it) },
@@ -194,7 +210,11 @@ fun SearchScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Search by sender, message content, or keywords",
+                        text = if (pickMode) {
+                            "Search by sender or message content to find the message"
+                        } else {
+                            "Search by sender, message content, or keywords"
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -242,11 +262,17 @@ fun SearchScreen(
                 ) {
                     messageItems(
                         messages = state.results,
-                        selectedIds = selectedIds,
+                        selectedIds = if (pickMode) emptySet() else selectedIds,
                         onClick = { id ->
-                            if (hasSelection) viewModel.toggleMessageSelection(id) else onNavigateToMessage(id)
+                            when {
+                                onPickMessage != null -> onPickMessage(id)
+                                hasSelection -> viewModel.toggleMessageSelection(id)
+                                else -> onNavigateToMessage(id)
+                            }
                         },
-                        onLongClick = { id -> viewModel.toggleMessageSelection(id) },
+                        onLongClick = { id ->
+                            if (onPickMessage != null) onPickMessage(id) else viewModel.toggleMessageSelection(id)
+                        },
                         highlightQuery = state.query
                     )
                 }

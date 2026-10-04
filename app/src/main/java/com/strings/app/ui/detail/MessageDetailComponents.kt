@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Store
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,7 +51,9 @@ import com.strings.app.domain.model.Tag
 import com.strings.app.domain.model.Transaction
 import com.strings.app.domain.model.TransactionType
 import com.strings.app.domain.transaction.BankCode
+import com.strings.app.ui.components.SectionHeaderWithInfo
 import com.strings.app.ui.components.tagIconFor
+import com.strings.app.ui.help.HelpTexts
 import com.strings.app.ui.finance.amountColor
 import com.strings.app.ui.finance.formatCurrency
 import com.strings.app.ui.finance.formatSignedAmount
@@ -201,6 +205,57 @@ fun OtpDetailCard(
     }
 }
 
+/**
+ * The user's free-text description of the message, shown in full (the ledger only shows a
+ * preview). The pencil re-opens the editor; the info icon explains where the text surfaces.
+ */
+@Composable
+fun MessageDescriptionCard(
+    description: String,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.xs, bottom = Spacing.lg)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SectionHeaderWithInfo(
+                    title = "Description",
+                    tooltipText = HelpTexts.MESSAGE_DESCRIPTION,
+                    style = MaterialTheme.typography.bodyMedium,
+                    tooltipTitle = "Description"
+                )
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        Icons.Outlined.Edit,
+                        contentDescription = "Edit description",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(end = Spacing.md)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ManageTagsSheet(
@@ -335,6 +390,13 @@ fun TransactionDetailCard(
                         icon = Icons.Outlined.Store,
                         label = "Merchant",
                         value = merchant
+                    )
+                }
+                if (transaction.isLinked) {
+                    TransactionDetailRow(
+                        icon = Icons.Outlined.Link,
+                        label = "Source",
+                        value = "Linked manually"
                     )
                 }
             }

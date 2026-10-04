@@ -15,6 +15,7 @@ import com.strings.app.domain.transaction.ParsedTransaction
 import com.strings.app.domain.transaction.TransactionParser
 import com.strings.app.domain.usecase.CheckBalanceDiscrepancyUseCase
 import com.strings.app.domain.usecase.IncludeTransactionResult
+import com.strings.app.domain.usecase.LinkTransactionToMessageUseCase
 import com.strings.app.domain.usecase.ToggleTransactionUseCase
 import com.strings.app.notification.SmsNotifier
 import kotlinx.coroutines.async
@@ -36,11 +37,12 @@ data class MessageDetailUiState(
     val isLoading: Boolean = true
 )
 
-/** One-shot outcome of the "Not a transaction" / "Mark as transaction" toggle, for UI feedback. */
+/** One-shot outcome of a transaction action (toggle detection / remove a linked row), for UI feedback. */
 enum class TransactionToggleEvent {
     EXCLUDED,
     INCLUDED,
-    NOT_RECOGNIZED
+    NOT_RECOGNIZED,
+    LINK_REMOVED
 }
 
 class MessageDetailViewModel(
@@ -50,7 +52,8 @@ class MessageDetailViewModel(
     private val transactionParser: TransactionParser,
     private val notifier: SmsNotifier,
     private val checkBalanceDiscrepancy: CheckBalanceDiscrepancyUseCase,
-    private val toggleTransactionUseCase: ToggleTransactionUseCase
+    private val toggleTransactionUseCase: ToggleTransactionUseCase,
+    private val linkTransactionUseCase: LinkTransactionToMessageUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(MessageDetailUiState())
     val uiState: StateFlow<MessageDetailUiState> = _uiState.asStateFlow()
@@ -111,6 +114,27 @@ class MessageDetailViewModel(
             }
             _uiState.value = fetchState(message.id)
             _transactionToggleEvents.tryEmit(event)
+        }
+    }
+
+    /** Deletes a transaction the user linked to this message by hand (confirmed in the UI). */
+    fun removeLinkedTransaction() {
+        val message: Message = _uiState.value.message ?: return
+        val transaction: Transaction = _uiState.value.transaction ?: return
+        if (!transaction.isLinked) return
+        viewModelScope.launch {
+            linkTransactionUseCase.remove(transaction.id)
+            _uiState.value = fetchState(message.id)
+            _transactionToggleEvents.tryEmit(TransactionToggleEvent.LINK_REMOVED)
+        }
+    }
+
+    fun setDescription(description: String?) {
+        val message: Message = _uiState.value.message ?: return
+        viewModelScope.launch {
+            messageRepository.setDescription(message.id, description)
+            val stored: String? = messageRepository.getMessageById(message.id)?.description
+            _uiState.value = _uiState.value.copy(message = message.copy(description = stored))
         }
     }
 

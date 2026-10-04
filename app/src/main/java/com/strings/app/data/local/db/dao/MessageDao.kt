@@ -165,6 +165,9 @@ interface MessageDao {
     @Query("UPDATE messages SET isTransactionExcluded = :isExcluded WHERE id = :messageId")
     suspend fun setTransactionExcluded(messageId: Long, isExcluded: Boolean)
 
+    @Query("UPDATE messages SET description = :description WHERE id = :messageId")
+    suspend fun setDescription(messageId: Long, description: String?)
+
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun deleteMessage(messageId: Long)
 

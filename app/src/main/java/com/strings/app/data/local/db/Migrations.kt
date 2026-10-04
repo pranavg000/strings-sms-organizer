@@ -102,3 +102,16 @@ val MIGRATION_7_8: Migration = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE messages ADD COLUMN isTransactionExcluded INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+// The sentinel flag becomes a three-way origin (PARSED / SENTINEL / LINKED) so a sentinel the
+// user links to a message can be told apart from parser output and survive re-categorization.
+// Messages gain a free-text description. DROP COLUMN needs SQLite 3.35+, which minSdk 35
+// guarantees; isSentinel is neither indexed nor part of a key, so the drop is allowed.
+val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE transactions ADD COLUMN origin TEXT NOT NULL DEFAULT 'PARSED'")
+        db.execSQL("UPDATE transactions SET origin = 'SENTINEL' WHERE isSentinel = 1")
+        db.execSQL("ALTER TABLE transactions DROP COLUMN isSentinel")
+        db.execSQL("ALTER TABLE messages ADD COLUMN description TEXT DEFAULT NULL")
+    }
+}
