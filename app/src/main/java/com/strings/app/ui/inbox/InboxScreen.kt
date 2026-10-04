@@ -73,8 +73,6 @@ fun InboxScreen(
     onNavigateToFilters: () -> Unit,
     onNavigateToTags: () -> Unit,
     onNavigateToDetail: (Long) -> Unit,
-    onNavigateToTagMessages: (Long) -> Unit,
-    onNavigateToFilterMessages: (Long) -> Unit,
     onNavigateToFilterEdit: () -> Unit,
     onNavigateToAllMessages: () -> Unit,
     onNavigateToArchivedMessages: () -> Unit,
@@ -91,8 +89,6 @@ fun InboxScreen(
     }
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val inboxTagId by viewModel.inboxTagId.collectAsStateWithLifecycle()
-    val allTags by viewModel.allTags.collectAsStateWithLifecycle()
-    val allFilters by viewModel.allFilters.collectAsStateWithLifecycle()
     val selectedMessageIds by viewModel.selectedMessageIds.collectAsStateWithLifecycle()
     val hasSelection = selectedMessageIds.isNotEmpty()
     var showTrashConfirm by remember { mutableStateOf(false) }
@@ -115,9 +111,6 @@ fun InboxScreen(
         gesturesEnabled = !hasSelection,
         drawerContent = {
             InboxDrawerContent(
-                allTags = allTags,
-                allFilters = allFilters,
-                activeTagId = tabs.getOrNull(pagerState.currentPage)?.tag?.id,
                 onAllMessagesClick = {
                     coroutineScope.launch { drawerState.close() }
                     onNavigateToAllMessages()
@@ -130,26 +123,13 @@ fun InboxScreen(
                     coroutineScope.launch { drawerState.close() }
                     onNavigateToTrashedMessages()
                 },
-                onTagClick = { tagId ->
+                onTagsClick = {
                     coroutineScope.launch { drawerState.close() }
-                    val visibleIndex = tabs.take(MAX_BOTTOM_TABS).indexOfFirst { it.tag.id == tagId }
-                    if (visibleIndex >= 0) {
-                        coroutineScope.launch { pagerState.animateScrollToPage(visibleIndex) }
-                    } else {
-                        onNavigateToTagMessages(tagId)
-                    }
-                },
-                onFilterClick = { filterId ->
-                    coroutineScope.launch { drawerState.close() }
-                    onNavigateToFilterMessages(filterId)
+                    onNavigateToTags()
                 },
                 onFiltersClick = {
                     coroutineScope.launch { drawerState.close() }
                     onNavigateToFilters()
-                },
-                onManageTagsClick = {
-                    coroutineScope.launch { drawerState.close() }
-                    onNavigateToTags()
                 },
                 onFinanceDashboardClick = {
                     coroutineScope.launch { drawerState.close() }

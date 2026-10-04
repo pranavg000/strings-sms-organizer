@@ -6,11 +6,9 @@ import androidx.paging.cachedIn
 import com.strings.app.data.prefs.SettingsDataStore
 import com.strings.app.domain.filter.FilterDraftHolder
 import com.strings.app.domain.filter.FilterSuggester
-import com.strings.app.domain.model.Filter
 import com.strings.app.domain.model.Message
 import com.strings.app.domain.model.TabConfig
 import com.strings.app.domain.model.Tag
-import com.strings.app.domain.repository.FilterRepository
 import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TagRepository
 import com.strings.app.domain.usecase.AdoptLegacyWalletAccountsUseCase
@@ -33,7 +31,6 @@ data class TabWithTag(
 class InboxViewModel(
     private val messageRepository: MessageRepository,
     private val tagRepository: TagRepository,
-    private val filterRepository: FilterRepository,
     private val settingsDataStore: SettingsDataStore,
     private val adoptLegacyWalletAccountsUseCase: AdoptLegacyWalletAccountsUseCase,
     filterSuggester: FilterSuggester,
@@ -56,20 +53,6 @@ class InboxViewModel(
                 }
             }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyList()
-        )
-
-    val allTags: StateFlow<List<Tag>> = tagRepository.getAllTags()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyList()
-        )
-
-    val allFilters: StateFlow<List<Filter>> = filterRepository.getAllFilters()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),

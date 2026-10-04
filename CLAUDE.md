@@ -98,6 +98,10 @@ Follow these when building or changing any screen. They reflect decisions alread
 - **Toolbar action icons are outlined with default tint** -- e.g. delete is `Icons.Outlined.Delete` with NO `error` tint (the destructive confirmation lives in the dialog, not the icon color). Save/confirm uses `Icons.Default.Check`.
 - **Exception: the inbox home** uses a custom search header (hamburger + search field) and a contextual multi-select bar (`primaryContainer`) -- these are deliberate and not the back-nav toolbar.
 
+**Navigation drawer (bounded, never data-driven)**
+- `InboxDrawerContent` is a **fixed list of destinations** (All messages / Archived / Trash | Tags / Filters | Finance / Accounts | Settings / Help). **Never add rows that scale with user data** (per-tag, per-filter, per-account entries) -- the drawer was once a tag tree + filter list and became unusable past a dozen tags. Tabs are the pinning mechanism for frequently used top-level tags; don't add a second "show in drawer" flag.
+- **Browsing data lives on pages, not in the drawer.** `TagListScreen` ("Tags") is the single tags surface: card tap -> `TagMessagesRoute` (browse), trailing pencil -> `TagEditRoute`, FAB -> create. `FilterListScreen` ("Filters"): card tap -> edit, row overflow (`MoreVert`) -> "View matching messages" (`FilterMessagesRoute`); the drag handle is the leading element of the row. Screen titles match the drawer labels ("Tags", "Filters"), not "Manage ...".
+
 **General**
 - Prefer standard Material 3 components over custom ones; check for a built-in, scalable option first.
 - Typography comes from the theme (Inter via downloadable Google Fonts) -- use `MaterialTheme.typography`, don't hardcode font sizes. `fontWeight` overrides layered on a theme style (e.g. SemiBold on `titleMedium` for emphasis, unread-state weight in `MessageCard`) are deliberate and acceptable -- don't "fix" them.

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Tab
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.TopAppBar
@@ -52,6 +53,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun TagListScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToMessages: (Long) -> Unit,
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToCreate: () -> Unit,
     viewModel: TagViewModel = koinViewModel()
@@ -61,7 +63,7 @@ fun TagListScreen(
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
-                title = { Text("Manage tags") },
+                title = { Text("Tags") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -117,7 +119,8 @@ fun TagListScreen(
                         isTab = tag.id in state.tabTagIds,
                         count = state.tagCounts[tag.id] ?: 0,
                         indent = 0,
-                        onClick = { onNavigateToEdit(tag.id) },
+                        onClick = { onNavigateToMessages(tag.id) },
+                        onEdit = { onNavigateToEdit(tag.id) },
                         modifier = Modifier.animateItem()
                     )
                     val children = state.tags.filter { it.parentTagId == tag.id }
@@ -128,7 +131,8 @@ fun TagListScreen(
                             isTab = child.id in state.tabTagIds,
                             count = state.tagCounts[child.id] ?: 0,
                             indent = 1,
-                            onClick = { onNavigateToEdit(child.id) }
+                            onClick = { onNavigateToMessages(child.id) },
+                            onEdit = { onNavigateToEdit(child.id) }
                         )
                     }
                 }
@@ -144,6 +148,7 @@ private fun TagItem(
     count: Int,
     indent: Int,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = rememberTagColors(tag)
@@ -183,7 +188,9 @@ private fun TagItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                    // The trailing IconButton carries its own 48dp touch target, so the end
+                    // inset is reduced to keep the pencil visually aligned with the card edge.
+                    .padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.md, bottom = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -226,6 +233,14 @@ private fun TagItem(
                     fontWeight = FontWeight.SemiBold,
                     color = colors.accent
                 )
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Outlined.Edit,
+                        contentDescription = "Edit ${tag.name}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

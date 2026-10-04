@@ -1,6 +1,5 @@
 package com.strings.app.ui.filters
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,15 +13,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -37,12 +38,13 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.strings.app.domain.model.ActionType
 import com.strings.app.domain.model.Filter
@@ -61,6 +63,7 @@ fun FilterListScreen(
     onNavigateBack: () -> Unit,
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToCreate: () -> Unit,
+    onNavigateToMessages: (Long) -> Unit,
     viewModel: FilterViewModel = koinViewModel()
 ) {
     val state by viewModel.listState.collectAsStateWithLifecycle()
@@ -73,7 +76,7 @@ fun FilterListScreen(
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             TopAppBar(
-                title = { Text("Manage filters") },
+                title = { Text("Filters") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -129,6 +132,7 @@ fun FilterListScreen(
                             filter = filter,
                             tags = state.tags,
                             onClick = { onNavigateToEdit(filter.id) },
+                            onViewMessages = { onNavigateToMessages(filter.id) },
                             onToggleEnabled = { enabled ->
                                 viewModel.toggleFilterEnabled(filter.id, enabled)
                             },
@@ -157,10 +161,11 @@ private fun FilterCard(
     filter: Filter,
     tags: List<Tag>,
     onClick: () -> Unit,
+    onViewMessages: () -> Unit,
     onToggleEnabled: (Boolean) -> Unit,
     dragHandle: @Composable () -> Unit
 ) {
-    val accent = MaterialTheme.colorScheme.primary
+    var menuExpanded: Boolean by remember { mutableStateOf(false) }
     Card(
         onClick = onClick,
         colors = CardDefaults.cardColors(
@@ -171,24 +176,13 @@ private fun FilterCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                // Leading drag handle and trailing overflow carry their own 48dp touch
+                // targets, so the horizontal insets are reduced to keep them edge-aligned.
+                .padding(horizontal = Spacing.xs, vertical = Spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FilterList,
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(Spacing.lg))
+            dragHandle()
+            Spacer(modifier = Modifier.width(Spacing.xs))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = filter.name.ifEmpty { "Unnamed filter" },
@@ -225,8 +219,25 @@ private fun FilterCard(
                     null
                 }
             )
-            Spacer(modifier = Modifier.width(Spacing.sm))
-            dragHandle()
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options for ${filter.name.ifEmpty { "filter" }}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("View matching messages") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onViewMessages()
+                        }
+                    )
+                }
+            }
         }
     }
 }

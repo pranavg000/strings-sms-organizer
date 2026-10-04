@@ -143,12 +143,6 @@ fun StringsNavGraph(
                             onNavigateToDetail = { messageId ->
                                 navController.navigate(MessageDetailRoute(messageId)) { launchSingleTop = true }
                             },
-                            onNavigateToTagMessages = { tagId ->
-                                navController.navigate(TagMessagesRoute(tagId)) { launchSingleTop = true }
-                            },
-                            onNavigateToFilterMessages = { filterId ->
-                                navController.navigate(FilterMessagesRoute(filterId)) { launchSingleTop = true }
-                            },
                             onNavigateToFilterEdit = {
                                 navController.navigate(FilterEditRoute()) { launchSingleTop = true }
                             },
@@ -321,6 +315,9 @@ fun StringsNavGraph(
                         },
                         onNavigateToCreate = {
                             navController.navigate(FilterEditRoute()) { launchSingleTop = true }
+                        },
+                        onNavigateToMessages = { filterId ->
+                            navController.navigate(FilterMessagesRoute(filterId)) { launchSingleTop = true }
                         }
                     )
                 }
@@ -334,6 +331,9 @@ fun StringsNavGraph(
                 composable<TagListRoute> {
                     TagListScreen(
                         onNavigateBack = { navController.popBackStack() },
+                        onNavigateToMessages = { tagId ->
+                            navController.navigate(TagMessagesRoute(tagId)) { launchSingleTop = true }
+                        },
                         onNavigateToEdit = { tagId ->
                             navController.navigate(TagEditRoute(tagId)) { launchSingleTop = true }
                         },

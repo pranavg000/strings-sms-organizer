@@ -20,7 +20,7 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 val appModule = module {
-    viewModel { InboxViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { InboxViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { SearchViewModel(get(), get(), get(), get(), get()) }
     viewModel { FilterViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { FilterMessagesViewModel(get(), get(), get(), get(), get()) }

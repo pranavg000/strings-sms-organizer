@@ -7,7 +7,7 @@ package com.strings.app.ui.help
 object HelpTexts {
     const val FILTER_ENABLED: String =
         "When enabled, this filter runs automatically on every incoming message. " +
-            "Filters run in the order shown on the Manage filters screen."
+            "Filters run in the order shown on the Filters page."
     const val FILTER_CONDITIONS: String =
         "Conditions decide which messages this filter matches. " +
             "ALL means every condition must match; ANY means at least one is enough. " +
@@ -25,7 +25,7 @@ object HelpTexts {
             "\u2022 Stop processing: filters below this one are skipped for the message."
     const val FILTER_ASSIGN_TAGS: String =
         "Matching messages get these tags. Tags organize messages into inbox tabs " +
-            "and drawer views \u2014 a message appears in every tab whose tag it has."
+            "and the Tags page \u2014 a message appears in every tab whose tag it has."
     const val FILTER_APPLY_EXISTING: String =
         "Also run this filter once over the messages already in the app when you save, " +
             "not just future ones."
@@ -33,9 +33,11 @@ object HelpTexts {
         "Filters are rules that run automatically on every incoming message, from top to bottom. " +
             "Drag the handle to change the order. The switch turns a filter on or off " +
             "without deleting it. A filter with the \u201Cstop processing\u201D action " +
-            "prevents the filters below it from running on a matched message."
+            "prevents the filters below it from running on a matched message. " +
+            "Tap a filter to edit it; its menu shows the messages it has matched."
     const val TAG_LIST: String =
         "Tags are how Strings organizes messages \u2014 like labels in Gmail. " +
+            "Tap a tag to see its messages, or the pencil to edit it. " +
             "A tag can be shown as a tab on the inbox home screen, and tags can nest " +
             "under a parent tag (e.g. Finance > HDFC). A message can have many tags " +
             "and appears in every matching tab."
@@ -53,12 +55,13 @@ object HelpTexts {
         "Tags are labels that categorize messages, like in Gmail. Each inbox tab maps to a tag, " +
             "and you choose which tags appear as tabs. Tags can nest under a parent " +
             "(e.g. Finance > HDFC), and a parent's tab includes messages tagged with its children. " +
-            "A message can have many tags, so it appears in every matching tab \u2014 not just one."
+            "A message can have many tags, so it appears in every matching tab \u2014 not just one. " +
+            "Tags that aren't tabs are one tap away on the Tags page (menu > Tags)."
     const val PAGE_FILTERS: String =
         "Filters are rules that run automatically on incoming messages. Each filter has conditions " +
             "(who sent it, what the text contains) and actions (assign tags, archive, mark read, " +
-            "suppress the notification, and more). Filters run in the order shown on the Manage " +
-            "filters screen. A disabled \u201CExample: Order updates\u201D filter is included \u2014 " +
+            "suppress the notification, and more). Filters run in the order shown on the " +
+            "Filters page. A disabled \u201CExample: Order updates\u201D filter is included \u2014 " +
             "open it to see how conditions and actions fit together, then enable it or delete it."
     const val PAGE_SUGGEST: String =
         "Long-press a message to start selecting, pick a few similar ones, then tap the wand icon. " +
