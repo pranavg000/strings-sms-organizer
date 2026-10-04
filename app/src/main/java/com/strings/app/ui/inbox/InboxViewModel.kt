@@ -1,5 +1,6 @@
 package com.strings.app.ui.inbox
 
+import android.util.Log
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
@@ -14,6 +15,7 @@ import com.strings.app.domain.repository.TagRepository
 import com.strings.app.domain.usecase.AdoptLegacyWalletAccountsUseCase
 import com.strings.app.ui.common.SelectableMessagesViewModel
 import com.strings.app.util.DatabaseSeeder
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class TabWithTag(
     val config: TabConfig,
@@ -62,12 +65,21 @@ class InboxViewModel(
     private val pagingCache: MutableMap<Long, Flow<PagingData<Message>>> = mutableMapOf()
     private var seederRun: Boolean = false
 
+    /**
+     * Startup self-heal (system tags, legacy wallet adoption). Guarded so a failure can't
+     * become a crash loop on every launch, and non-cancellable so leaving the inbox
+     * mid-way (the adoption re-parses up to a year of messages) doesn't abort it half-done.
+     */
     fun initialize(seeder: DatabaseSeeder) {
         if (seederRun) return
         seederRun = true
         viewModelScope.launch {
-            seeder.setupFirstRun()
-            adoptLegacyWalletAccountsUseCase.execute()
+            withContext(NonCancellable) {
+                runCatching { seeder.setupFirstRun() }
+                    .onFailure { Log.e(TAG, "First-run setup failed", it) }
+                runCatching { adoptLegacyWalletAccountsUseCase.execute() }
+                    .onFailure { Log.e(TAG, "Legacy wallet adoption failed", it) }
+            }
         }
     }
 
@@ -92,4 +104,7 @@ class InboxViewModel(
         }
     }
 
+    private companion object {
+        const val TAG: String = "InboxViewModel"
+    }
 }

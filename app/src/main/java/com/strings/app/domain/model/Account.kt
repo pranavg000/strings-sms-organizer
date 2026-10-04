@@ -23,5 +23,10 @@ data class Account(
 )
 
 enum class AccountType {
-    SAVINGS, CREDIT_CARD, WALLET
+    SAVINGS, CREDIT_CARD, WALLET;
+
+    companion object {
+        /** Tolerant decoder for the `.name` string stored in Room; null for unknown values. */
+        fun fromStored(value: String): AccountType? = entries.firstOrNull { it.name == value }
+    }
 }

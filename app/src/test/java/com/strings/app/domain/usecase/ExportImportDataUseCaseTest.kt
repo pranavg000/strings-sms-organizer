@@ -7,6 +7,7 @@ import com.strings.app.domain.fakes.FakeFilterRepository
 import com.strings.app.domain.fakes.FakeMessageRepository
 import com.strings.app.domain.fakes.FakeTagRepository
 import com.strings.app.domain.fakes.FakeTransactionRepository
+import com.strings.app.domain.fakes.FakeTransactionRunner
 import com.strings.app.domain.model.Account
 import com.strings.app.domain.model.AccountType
 import com.strings.app.domain.model.ActionType
@@ -41,6 +42,7 @@ private class Device {
     val messageRepository = FakeMessageRepository()
     val transactionRepository = FakeTransactionRepository()
     val settings = FakeBackupSettings()
+    val transactionRunner = FakeTransactionRunner()
     val inboxTagId: Long = tagRepository.seedTag(
         Tag(name = "Inbox", color = "", icon = "inbox", sortOrder = 0, isSystemTag = true)
     )
@@ -83,7 +85,8 @@ private class Device {
         json = testJson,
         recategorizeTransactionsUseCase = recategorizeUseCase(),
         toggleTransactionUseCase = toggleTransactionUseCase(),
-        linkTransactionUseCase = linkTransactionUseCase()
+        linkTransactionUseCase = linkTransactionUseCase(),
+        transactionRunner = transactionRunner
     )
     companion object {
         val testJson: Json = Json {
@@ -358,7 +361,8 @@ class ExportImportDataUseCaseTest {
         populateSource(source)
         val exported: String = source.exportUseCase().execute()
         val bundle: BackupBundle = Device.testJson.decodeFromString(BackupBundle.serializer(), exported)
-        assertEquals(6, bundle.version)
+        assertEquals(7, bundle.version)
+        assertTrue(bundle.messageStates.all { it.bodyHash != null })
         val exportedSenders: Set<String> = bundle.messageStates.map { it.sender }.toSet()
         assertEquals(
             setOf(
@@ -508,6 +512,163 @@ class ExportImportDataUseCaseTest {
         assertEquals(1, result.messagesRestored)
         assertEquals(0, result.messagesUnmatched)
         assertTrue(target.messageRepository.messageBySender("AX-HDFCBK").isRead)
+    }
+
+    /**
+     * `deviceMessageId` is `Telephony.Sms._ID`, which restarts on every device. On a new
+     * phone the exported id points at an unrelated SMS, so content must win over the id.
+     */
+    @Test
+    fun deviceIdCollisionOnNewDeviceNeverBeatsContentMatch() = runTest {
+        val source = Device()
+        source.messageRepository.seedMessage(
+            message(
+                sender = "AX-HDFCBK",
+                timestamp = 100L,
+                deviceMessageId = 5L,
+                body = "alpha",
+                isRead = true,
+                description = "keep me"
+            ),
+            setOf(source.inboxTagId)
+        )
+        val exported: String = source.exportUseCase().execute()
+        val target = Device()
+        val unrelatedId: Long = target.messageRepository.seedMessage(
+            message(sender = "VK-PROMO", timestamp = 999L, deviceMessageId = 5L, body = "unrelated"),
+            setOf(target.inboxTagId)
+        )
+        val realId: Long = target.messageRepository.seedMessage(
+            message(sender = "AX-HDFCBK", timestamp = 100L, deviceMessageId = 77L, body = "alpha"),
+            setOf(target.inboxTagId)
+        )
+        val result: ImportResult = target.importUseCase().execute(exported)
+        assertEquals(1, result.messagesRestored)
+        assertEquals(0, result.messagesUnmatched)
+        val real: Message = target.messageRepository.getMessageById(realId)!!
+        assertTrue(real.isRead)
+        assertEquals("keep me", real.description)
+        val unrelated: Message = target.messageRepository.getMessageById(unrelatedId)!!
+        assertFalse(unrelated.isRead)
+        assertNull(unrelated.description)
+    }
+
+    /** A live-ingested SMSC timestamp vs the provider's DATE can differ; the body hash bridges it. */
+    @Test
+    fun matchesByBodyHashWhenTimestampAndDeviceIdBothDiffer() = runTest {
+        val source = Device()
+        source.messageRepository.seedMessage(
+            message(sender = "AX-HDFCBK", timestamp = 1_000L, deviceMessageId = 5L, body = "alpha", isArchived = true),
+            setOf(source.inboxTagId)
+        )
+        val exported: String = source.exportUseCase().execute()
+        val target = Device()
+        target.messageRepository.seedMessage(
+            message(sender = "AX-HDFCBK", timestamp = 91_000L, deviceMessageId = 5_000L, body = "alpha"),
+            setOf(target.inboxTagId)
+        )
+        val result: ImportResult = target.importUseCase().execute(exported)
+        assertEquals(1, result.messagesRestored)
+        assertTrue(target.messageRepository.messageBySender("AX-HDFCBK").isArchived)
+    }
+
+    /** Pre-v7 bundles carry no hash: the id is still used, but only when the sender agrees. */
+    @Test
+    fun legacyBundleUsesDeviceIdOnlyWhenSenderAgrees() = runTest {
+        val legacyJson: String = """
+            {
+              "version": 6,
+              "messageStates": [
+                {"deviceMessageId": 5, "sender": "AX-HDFCBK", "timestamp": 100, "isRead": true}
+              ]
+            }
+        """.trimIndent()
+        val wrongSender = Device()
+        wrongSender.messageRepository.seedMessage(
+            message(sender = "VK-PROMO", timestamp = 999L, deviceMessageId = 5L),
+            setOf(wrongSender.inboxTagId)
+        )
+        val rejected: ImportResult = wrongSender.importUseCase().execute(legacyJson)
+        assertEquals(0, rejected.messagesRestored)
+        assertEquals(1, rejected.messagesUnmatched)
+        assertFalse(wrongSender.messageRepository.messageBySender("VK-PROMO").isRead)
+        val sameSender = Device()
+        sameSender.messageRepository.seedMessage(
+            message(sender = "AX-HDFCBK", timestamp = 999L, deviceMessageId = 5L),
+            setOf(sameSender.inboxTagId)
+        )
+        val accepted: ImportResult = sameSender.importUseCase().execute(legacyJson)
+        assertEquals(1, accepted.messagesRestored)
+        assertTrue(sameSender.messageRepository.messageBySender("AX-HDFCBK").isRead)
+    }
+
+    /**
+     * The categorizer marks Finance and bank tags as system tags. They must still import on
+     * a device that has never parsed a message from that bank, or every tab, filter action,
+     * message tag set and child tag referencing them silently drops.
+     */
+    @Test
+    fun importsFinanceSystemTagsOnTargetThatNeverParsedThatBank() = runTest {
+        val source = Device()
+        val financeTagId: Long = source.tagRepository.seedTag(
+            Tag(name = "Finance", color = "", icon = "wallet", isSystemTag = true)
+        )
+        val hdfcTagId: Long = source.tagRepository.seedTag(
+            Tag(name = "HDFC", color = "", icon = "bank", parentTagId = financeTagId, isSystemTag = true)
+        )
+        source.tagRepository.seedTag(
+            Tag(name = "Bills", color = "", icon = "receipt", parentTagId = hdfcTagId)
+        )
+        source.tagRepository.seedTab(TabConfig(tagId = financeTagId, position = 1, isVisible = true))
+        source.filterRepository.insertFilter(
+            Filter(
+                name = "HDFC alerts",
+                root = ConditionGroup(
+                    children = listOf(ConditionLeaf(ConditionField.SENDER, ConditionOperator.CONTAINS, "HDFCBK"))
+                ),
+                actions = listOf(FilterAction(actionType = ActionType.ASSIGN_TAG, targetTagId = hdfcTagId))
+            )
+        )
+        source.messageRepository.seedMessage(
+            message(sender = "VM-HDFCBK", timestamp = 50L, deviceMessageId = 1L, body = "promo, not parseable"),
+            setOf(source.inboxTagId, financeTagId, hdfcTagId)
+        )
+        val exported: String = source.exportUseCase().execute()
+        val target = Device()
+        val messageId: Long = target.messageRepository.seedMessage(
+            message(sender = "VM-HDFCBK", timestamp = 50L, deviceMessageId = 1L, body = "promo, not parseable"),
+            setOf(target.inboxTagId)
+        )
+        val result: ImportResult = target.importUseCase().execute(exported)
+        assertEquals(3, result.tagsAdded)
+        assertEquals(1, result.tabsRestored)
+        val finance: Tag = target.tagRepository.getTagByName("Finance")!!
+        val hdfc: Tag = target.tagRepository.getTagByName("HDFC")!!
+        val bills: Tag = target.tagRepository.getTagByName("Bills")!!
+        assertTrue(finance.isSystemTag)
+        assertTrue(hdfc.isSystemTag)
+        assertFalse(bills.isSystemTag)
+        assertNull(finance.parentTagId)
+        assertEquals(finance.id, hdfc.parentTagId)
+        assertEquals(hdfc.id, bills.parentTagId)
+        assertNotNull(target.tagRepository.tabs.firstOrNull { it.tagId == finance.id })
+        val filter: Filter = target.filterRepository.filters.single { it.name == "HDFC alerts" }
+        assertEquals(hdfc.id, filter.actions.single().targetTagId)
+        assertEquals(setOf(target.inboxTagId, finance.id, hdfc.id), target.messageRepository.tagIdsOf(messageId))
+        // Inbox and OTP stay owned by the seeder: never duplicated from the bundle.
+        assertEquals(1, target.tagRepository.tags.count { it.name == "Inbox" })
+        assertEquals(1, target.tagRepository.tags.count { it.name == "OTP" })
+    }
+
+    @Test
+    fun importRunsInsideOneTransaction() = runTest {
+        val source = Device()
+        populateSource(source)
+        val exported: String = source.exportUseCase().execute()
+        val target = Device()
+        populateTarget(target)
+        target.importUseCase().execute(exported)
+        assertEquals(1, target.transactionRunner.transactionsStarted)
     }
 
     @Test

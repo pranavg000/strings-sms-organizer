@@ -16,10 +16,12 @@ import com.strings.app.ui.inbox.TrashedMessagesViewModel
 import com.strings.app.ui.search.SearchViewModel
 import com.strings.app.ui.settings.SettingsViewModel
 import com.strings.app.ui.tags.TagViewModel
+import com.strings.app.util.AppLockController
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 val appModule = module {
+    single { AppLockController() }
     viewModel { InboxViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { SearchViewModel(get(), get(), get(), get(), get()) }
     viewModel { FilterViewModel(get(), get(), get(), get(), get(), get(), get()) }

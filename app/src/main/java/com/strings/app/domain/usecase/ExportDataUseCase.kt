@@ -6,6 +6,7 @@ import com.strings.app.domain.backup.BackupSettingsStore
 import com.strings.app.domain.backup.FilterActionDto
 import com.strings.app.domain.backup.FilterDto
 import com.strings.app.domain.backup.LinkedTransactionDto
+import com.strings.app.domain.backup.MessageBodyHash
 import com.strings.app.domain.backup.MessageStateDto
 import com.strings.app.domain.backup.SettingsDto
 import com.strings.app.domain.backup.TabConfigDto
@@ -163,6 +164,7 @@ class ExportDataUseCase(
                 deviceMessageId = message.deviceMessageId,
                 sender = message.sender,
                 timestamp = message.timestamp,
+                bodyHash = MessageBodyHash.of(message.body),
                 isRead = message.isRead,
                 isArchived = message.isArchived,
                 isTrashed = message.isTrashed,

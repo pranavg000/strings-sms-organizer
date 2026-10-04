@@ -6,6 +6,7 @@ import com.strings.app.domain.backup.BackupBundle
 import com.strings.app.domain.backup.BackupSettingsStore
 import com.strings.app.domain.backup.ImportResult
 import com.strings.app.domain.backup.LinkedTransactionDto
+import com.strings.app.domain.backup.MessageBodyHash
 import com.strings.app.domain.backup.MessageStateDto
 import com.strings.app.domain.model.Account
 import com.strings.app.domain.model.AccountType
@@ -23,8 +24,11 @@ import com.strings.app.domain.repository.FilterRepository
 import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TagRepository
 import com.strings.app.domain.repository.TransactionRepository
+import com.strings.app.domain.repository.TransactionRunner
+import com.strings.app.util.SystemTags
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
+import kotlin.math.abs
 
 class ImportDataUseCase(
     private val tagRepository: TagRepository,
@@ -35,7 +39,8 @@ class ImportDataUseCase(
     private val json: Json,
     private val recategorizeTransactionsUseCase: RecategorizeTransactionsUseCase,
     private val toggleTransactionUseCase: ToggleTransactionUseCase,
-    private val linkTransactionUseCase: LinkTransactionToMessageUseCase
+    private val linkTransactionUseCase: LinkTransactionToMessageUseCase,
+    private val transactionRunner: TransactionRunner
 ) {
     private data class MessageStateResult(
         val restored: Int,
@@ -44,6 +49,12 @@ class ImportDataUseCase(
         val linkedRestored: Int
     )
 
+    /**
+     * Every database write happens inside one transaction, so a failure part-way (a
+     * parser exception during recategorization, a cancelled coroutine) rolls the whole
+     * import back instead of leaving a half-restored device. Settings live in DataStore
+     * and are applied only after the database commit succeeds.
+     */
     suspend fun execute(jsonString: String): ImportResult {
         val bundle: BackupBundle = try {
             json.decodeFromString(BackupBundle.serializer(), jsonString)
@@ -55,6 +66,12 @@ class ImportDataUseCase(
                 "This backup was created by a newer version of Strings. Please update the app to import it."
             )
         }
+        val result: ImportResult = transactionRunner.runInTransaction { importDatabaseState(bundle) }
+        importSettings(bundle)
+        return result
+    }
+
+    private suspend fun importDatabaseState(bundle: BackupBundle): ImportResult {
         // Accounts import (and history rebuilds) before message states so
         // balance overrides can land on the re-parsed transactions.
         val accountsAdded: Int = importAccounts(bundle)
@@ -67,7 +84,6 @@ class ImportDataUseCase(
             tagRepository.getAllTags().first().associate { it.name to it.id }
         val tabsRestored: Int = importTabs(bundle, tagIdByName)
         val stateResult: MessageStateResult = importMessageStates(bundle, tagIdByName)
-        importSettings(bundle)
         return ImportResult(
             tagsAdded = tagsAdded,
             filtersAdded = filtersAdded,
@@ -91,11 +107,7 @@ class ImportDataUseCase(
         var accountsAdded = 0
         for (dto: AccountDto in bundle.accounts) {
             if (dto.bankCode.isEmpty()) continue
-            val accountType: AccountType = try {
-                AccountType.valueOf(dto.accountType)
-            } catch (e: IllegalArgumentException) {
-                continue
-            }
+            val accountType: AccountType = AccountType.fromStored(dto.accountType) ?: continue
             val existing: Account? =
                 transactionRepository.findAccountByCodeAndTail(dto.bankCode, dto.accountTail)
             if (existing != null) continue
@@ -127,6 +139,13 @@ class ImportDataUseCase(
         return accountsAdded
     }
 
+    /**
+     * Tags are reused by name. Only the seeded Inbox/OTP tags are never created here (the
+     * seeder owns them); every other tag -- including the Finance and bank tags the
+     * categorizer marks as system tags -- is inserted when missing, so tabs, filter
+     * actions, and message tag sets that reference them resolve even on a device that has
+     * not parsed a message from that bank yet.
+     */
     private suspend fun importTags(bundle: BackupBundle): Int {
         val existingTags: List<Tag> = tagRepository.getAllTags().first()
         val nameToId: MutableMap<String, Long> = existingTags.associate { it.name to it.id }.toMutableMap()
@@ -134,7 +153,7 @@ class ImportDataUseCase(
         var tagsAdded = 0
         for (dto in bundle.tags) {
             if (nameToId.containsKey(dto.name)) continue
-            if (dto.isSystemTag) continue
+            if (dto.isSystemTag && dto.name in SEEDED_SYSTEM_TAG_NAMES) continue
             val newId: Long = tagRepository.insertTag(
                 Tag(
                     name = dto.name,
@@ -142,7 +161,7 @@ class ImportDataUseCase(
                     icon = dto.icon,
                     parentTagId = null,
                     sortOrder = dto.sortOrder,
-                    isSystemTag = false
+                    isSystemTag = dto.isSystemTag
                 )
             )
             nameToId[dto.name] = newId
@@ -228,9 +247,8 @@ class ImportDataUseCase(
     }
 
     /**
-     * Matches each exported message state to a local message -- by
-     * deviceMessageId first (stable on the same device), then by
-     * (sender, timestamp) -- and restores flags, the exact tag set, the
+     * Matches each exported message state to a local message by content (see
+     * [MessageIndex]) and restores flags, the exact tag set, the
      * "not a transaction" override, the description, any balance override on
      * the message's re-parsed transaction, and the transactions the user
      * linked to it by hand. The override is applied after the tag set so the
@@ -242,19 +260,13 @@ class ImportDataUseCase(
         tagIdByName: Map<String, Long>
     ): MessageStateResult {
         if (bundle.messageStates.isEmpty()) return MessageStateResult(0, 0, 0, 0)
-        val allMessages: List<Message> = messageRepository.getAllMessagesOnce()
-        val byDeviceId: Map<Long, Message> = allMessages
-            .mapNotNull { message -> message.deviceMessageId?.let { it to message } }
-            .toMap()
-        val byContent: Map<Pair<String, Long>, Message> =
-            allMessages.associateBy { it.sender to it.timestamp }
+        val index = MessageIndex(messageRepository.getAllMessagesOnce())
         var restored = 0
         var unmatched = 0
         var balancesRestored = 0
         var linkedRestored = 0
         for (dto: MessageStateDto in bundle.messageStates) {
-            val message: Message? = dto.deviceMessageId?.let { byDeviceId[it] }
-                ?: byContent[dto.sender to dto.timestamp]
+            val message: Message? = index.find(dto)
             if (message == null) {
                 unmatched++
                 continue
@@ -311,11 +323,7 @@ class ImportDataUseCase(
         if (dtos.isEmpty()) return 0
         var restored = 0
         for (dto: LinkedTransactionDto in dtos) {
-            val type: TransactionType = try {
-                TransactionType.valueOf(dto.type)
-            } catch (e: IllegalArgumentException) {
-                continue
-            }
+            val type: TransactionType = TransactionType.fromStored(dto.type) ?: continue
             val account: Account = transactionRepository
                 .findAccountByCodeAndTail(dto.bankCode, dto.accountTail) ?: continue
             val existing: Transaction? = transactionRepository.getTransactionsForMessage(message.id)
@@ -354,5 +362,53 @@ class ImportDataUseCase(
             candidate = "$base ($counter)"
         }
         return candidate
+    }
+
+    /**
+     * Resolves an exported message state to a local message. `deviceMessageId` is
+     * `Telephony.Sms._ID`, which is per-device: on a new phone the same id is an unrelated
+     * SMS, so it must never win on its own. Order: exact (sender, timestamp); then
+     * (sender, bodyHash) picking the nearest timestamp (covers a live-ingested SMSC
+     * timestamp vs the provider's); then, for pre-v7 bundles with no hash, the device id --
+     * accepted only when the sender agrees. Within a (sender, timestamp) collision the
+     * device id and body hash break the tie.
+     */
+    private class MessageIndex(messages: List<Message>) {
+        private val hashById: Map<Long, String> = messages.associate { it.id to MessageBodyHash.of(it.body) }
+        private val byContent: Map<Pair<String, Long>, List<Message>> =
+            messages.groupBy { it.sender to it.timestamp }
+        private val byBodyHash: Map<Pair<String, String>, List<Message>> =
+            messages.groupBy { it.sender to hashById.getValue(it.id) }
+        private val byDeviceId: Map<Long, Message> = messages
+            .mapNotNull { message -> message.deviceMessageId?.let { it to message } }
+            .toMap()
+
+        fun find(dto: MessageStateDto): Message? {
+            byContent[dto.sender to dto.timestamp]?.let { candidates -> return pickAmongSameKey(candidates, dto) }
+            val bodyHash: String? = dto.bodyHash
+            if (bodyHash != null) {
+                byBodyHash[dto.sender to bodyHash]?.let { candidates ->
+                    return candidates.minBy { abs(it.timestamp - dto.timestamp) }
+                }
+            }
+            val byId: Message = dto.deviceMessageId?.let { byDeviceId[it] } ?: return null
+            return byId.takeIf { it.sender == dto.sender }
+        }
+
+        private fun pickAmongSameKey(candidates: List<Message>, dto: MessageStateDto): Message {
+            if (candidates.size == 1) return candidates.single()
+            val sameDeviceId: Message? = dto.deviceMessageId?.let { id ->
+                candidates.firstOrNull { it.deviceMessageId == id }
+            }
+            if (sameDeviceId != null) return sameDeviceId
+            val sameBody: Message? = dto.bodyHash?.let { hash ->
+                candidates.firstOrNull { hashById[it.id] == hash }
+            }
+            return sameBody ?: candidates.first()
+        }
+    }
+
+    private companion object {
+        val SEEDED_SYSTEM_TAG_NAMES: Set<String> = setOf(SystemTags.INBOX_NAME, SystemTags.OTP_NAME)
     }
 }

@@ -39,7 +39,7 @@ val domainModule = module {
     factory { ApplyFilterToExistingUseCase(get(), get(), get(), get(), get()) }
     factory { SyncSmsUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { ExportDataUseCase(get(), get(), get(), get(), get()) }
-    factory { ImportDataUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    factory { ImportDataUseCase(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { RecategorizeTransactionsUseCase(get(), get(), get()) }
     factory { ToggleTransactionUseCase(get(), get()) }
     factory { LinkTransactionToMessageUseCase(get(), get(), get()) }

@@ -4,13 +4,16 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -45,12 +48,14 @@ import com.strings.app.data.prefs.SettingsDataStore
 import com.strings.app.data.prefs.ThemeMode
 import com.strings.app.ui.navigation.StringsNavGraph
 import com.strings.app.ui.theme.StringsTheme
+import com.strings.app.util.AppLockController
 import com.strings.app.util.BiometricAuth
 import com.strings.app.work.SmsWorkScheduler
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
     private val settingsDataStore: SettingsDataStore by inject()
+    private val appLockController: AppLockController by inject()
     private var pendingMessageId by mutableStateOf<Long?>(null)
     private var isUnlocked by mutableStateOf(false)
 
@@ -68,6 +73,17 @@ class MainActivity : ComponentActivity() {
             }
             val appLockEnabled: Boolean? by settingsDataStore.appLockEnabled
                 .collectAsState(initial = null)
+            // With the lock on, keep OTPs and balances out of screenshots, screen
+            // recordings and the Recents thumbnail -- the thumbnail is captured
+            // before onStop relocks, so without this the lock screen would sit
+            // next to a preview of the unlocked inbox.
+            LaunchedEffect(appLockEnabled) {
+                if (appLockEnabled == true) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                }
+            }
             StringsTheme(darkTheme = darkTheme) {
                 // Keep the window background in sync with the composed theme
                 // (including the in-app dark override) so nothing light ever
@@ -76,11 +92,15 @@ class MainActivity : ComponentActivity() {
                 SideEffect {
                     window.setBackgroundDrawable(windowBackground.toArgb().toDrawable())
                 }
-                when {
-                    appLockEnabled == null -> {
-                        Surface(modifier = Modifier.fillMaxSize()) {}
-                    }
-                    appLockEnabled == false || isUnlocked -> {
+                if (appLockEnabled == null) {
+                    Surface(modifier = Modifier.fillMaxSize()) {}
+                } else {
+                    // The nav graph stays composed while locked and the lock screen
+                    // is drawn over it. Swapping the tree out instead would dispose
+                    // every screen's state and activity-result launchers -- a SAF
+                    // picker opened from Settings stops this activity, so its result
+                    // used to land on a disposed launcher.
+                    Box(modifier = Modifier.fillMaxSize()) {
                         SmsPermissionGate {
                             val navController = rememberNavController()
                             StringsNavGraph(
@@ -89,19 +109,29 @@ class MainActivity : ComponentActivity() {
                                 onDeepLinkConsumed = { pendingMessageId = null }
                             )
                         }
-                    }
-                    else -> {
-                        LockScreen(onUnlock = { showUnlockPrompt() })
-                        LaunchedEffect(Unit) { showUnlockPrompt() }
+                        if (appLockEnabled == true && !isUnlocked) {
+                            LockScreen(onUnlock = { showUnlockPrompt() })
+                            BackHandler { finish() }
+                            LaunchedEffect(Unit) { showUnlockPrompt() }
+                        }
                     }
                 }
             }
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (appLockController.shouldRelockAfterTrustedStop()) {
+            isUnlocked = false
+        }
+    }
+
     override fun onStop() {
         super.onStop()
-        isUnlocked = false
+        if (!appLockController.consumeTrustedStop()) {
+            isUnlocked = false
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

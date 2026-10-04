@@ -8,6 +8,8 @@ import com.strings.app.domain.usecase.ClearFinanceDataUseCase
 import com.strings.app.domain.usecase.ExportCategorizationUseCase
 import com.strings.app.domain.usecase.RecategorizeResult
 import com.strings.app.domain.usecase.RecategorizeTransactionsUseCase
+import com.strings.app.ui.common.ExclusiveOperationRunner
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -37,14 +39,35 @@ class SettingsViewModel(
         }
     }
 
-    suspend fun recategorizeRecent(): RecategorizeResult {
-        val sinceMillis: Long = System.currentTimeMillis() - RECATEGORIZE_3M_MS
-        return recategorizeTransactionsUseCase.execute(sinceMillis)
+    private val operations = ExclusiveOperationRunner(viewModelScope)
+
+    /** True while a recategorization or finance clear is running; gates the Settings cards. */
+    val isBusy: StateFlow<Boolean> = operations.isBusy
+
+    /** One-shot outcome messages for the snackbar. */
+    val messages: SharedFlow<String> = operations.messages
+
+    fun recategorizeRecent() {
+        recategorize(windowMillis = RECATEGORIZE_3M_MS)
     }
 
-    suspend fun recategorizeLastYear(): RecategorizeResult {
-        val sinceMillis: Long = System.currentTimeMillis() - RECATEGORIZE_1Y_MS
-        return recategorizeTransactionsUseCase.execute(sinceMillis)
+    fun recategorizeLastYear() {
+        recategorize(windowMillis = RECATEGORIZE_1Y_MS)
+    }
+
+    fun clearFinanceData() {
+        operations.run(onFailure = { e -> "Clearing finance data failed: ${e.message ?: "unknown error"}" }) {
+            val removed: Int = clearFinanceDataUseCase.execute()
+            "Cleared $removed Finance tags + all transactions/accounts"
+        }
+    }
+
+    private fun recategorize(windowMillis: Long) {
+        operations.run(onFailure = { e -> "Recategorization failed: ${e.message ?: "unknown error"}" }) {
+            val result: RecategorizeResult =
+                recategorizeTransactionsUseCase.execute(System.currentTimeMillis() - windowMillis)
+            "Recategorized ${result.categorized} of ${result.scanned} messages"
+        }
     }
 
     suspend fun exportCategorizationJson(): String {
@@ -55,10 +78,6 @@ class SettingsViewModel(
     suspend fun exportCategorizationLastYearJson(): String {
         val sinceMillis: Long = System.currentTimeMillis() - RECATEGORIZE_1Y_MS
         return exportCategorizationUseCase.execute(sinceMillis, RECATEGORIZE_1Y_DAYS)
-    }
-
-    suspend fun clearFinanceData(): Int {
-        return clearFinanceDataUseCase.execute()
     }
 
     private companion object {

@@ -21,7 +21,10 @@ import kotlinx.serialization.Serializable
 //     transactions (MessageStateDto.linkedTransactions: sentinels the user attached
 //     to a message by hand; not re-derivable, so amount/type/account travel along).
 //     Older bundles still import (both default to empty).
-const val BACKUP_VERSION: Int = 6
+// 7 - MessageStateDto.bodyHash (SHA-256 prefix of the body) so message states match by
+//     content on a new device; deviceMessageId is per-device and only breaks ties now.
+//     Older bundles still import (null hash -> sender+timestamp, then id with a sender check).
+const val BACKUP_VERSION: Int = 7
 
 @Serializable
 data class BackupBundle(
@@ -89,6 +92,7 @@ data class MessageStateDto(
     val deviceMessageId: Long? = null,
     val sender: String,
     val timestamp: Long,
+    val bodyHash: String? = null,
     val isRead: Boolean = false,
     val isArchived: Boolean = false,
     val isTrashed: Boolean = false,

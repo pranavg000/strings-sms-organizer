@@ -84,7 +84,7 @@ class SyncSmsUseCase(
         val otpCode: String? = otpDetector.detect(message.body)
         val toStore: Message = message.copy(isOtp = otpCode != null, otpCode = otpCode)
         val newId: Long = messageRepository.insertMessage(toStore)
-        val inboxTagId: Long = settings.getInboxTagId()
+        val inboxTagId: Long = seeder.ensureInboxTagId()
         if (inboxTagId > 0L) {
             messageRepository.addTagToMessage(newId, inboxTagId)
         }

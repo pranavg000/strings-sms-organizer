@@ -20,7 +20,12 @@ data class Transaction(
 }
 
 enum class TransactionType {
-    CREDIT, DEBIT
+    CREDIT, DEBIT;
+
+    companion object {
+        /** Tolerant decoder for the `.name` string stored in Room; null for unknown values. */
+        fun fromStored(value: String): TransactionType? = entries.firstOrNull { it.name == value }
+    }
 }
 
 /**
@@ -34,7 +39,12 @@ enum class TransactionOrigin {
     /** Placeholder for an unaccounted amount found by the balance check; shares the anchor's messageId. */
     SENTINEL,
     /** A sentinel the user attached to a message by hand; behaves like a real transaction for that message. */
-    LINKED
+    LINKED;
+
+    companion object {
+        /** Tolerant decoder for the `.name` string stored in Room; null for unknown values. */
+        fun fromStored(value: String): TransactionOrigin? = entries.firstOrNull { it.name == value }
+    }
 }
 
 /**

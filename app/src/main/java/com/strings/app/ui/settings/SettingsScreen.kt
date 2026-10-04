@@ -31,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -45,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,11 +62,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.strings.app.data.prefs.ThemeMode
 import com.strings.app.ui.backup.BackupViewModel
 import com.strings.app.ui.theme.Spacing
+import com.strings.app.util.AppLockController
 import com.strings.app.util.BiometricAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 private val THEME_OPTIONS: List<Pair<ThemeMode, String>> = listOf(
     ThemeMode.SYSTEM to "System",
@@ -83,67 +88,41 @@ fun SettingsScreen(
 ) {
     val themeMode: ThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val appLockEnabled: Boolean by viewModel.appLockEnabled.collectAsStateWithLifecycle()
+    val settingsBusy: Boolean by viewModel.isBusy.collectAsStateWithLifecycle()
+    val backupBusy: Boolean by backupViewModel.isBusy.collectAsStateWithLifecycle()
+    val isBusy: Boolean = settingsBusy || backupBusy
     val context = LocalContext.current
+    val appLockController: AppLockController = koinInject()
     val canUseAppLock: Boolean = remember { BiometricAuth.isAvailable(context) }
     val snackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var showClearFinanceConfirm: Boolean by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        merge(viewModel.messages, backupViewModel.messages).collect { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+    // The data operations live in the ViewModels (viewModelScope + NonCancellable) so
+    // leaving this screen mid-import can't abort them; the screen only owns the SAF
+    // streams. Pickers are flagged as trusted so the app lock doesn't relock on return.
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        coroutineScope.launch {
-            val message: String = try {
-                val jsonString: String = backupViewModel.exportJson()
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { stream ->
-                        stream.write(jsonString.toByteArray())
-                    } ?: throw IllegalStateException("Could not open the selected file.")
-                }
-                "Backup exported"
-            } catch (e: Exception) {
-                "Export failed: ${e.message}"
-            }
-            snackbarHostState.showSnackbar(message)
+        backupViewModel.export { jsonString ->
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(jsonString.toByteArray())
+            } ?: throw IllegalStateException("Could not open the selected file.")
         }
     }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        coroutineScope.launch {
-            val message: String = try {
-                val jsonString: String = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        stream.readBytes().decodeToString()
-                    } ?: throw IllegalStateException("Could not read the selected file.")
-                }
-                val result = backupViewModel.import(jsonString)
-                buildString {
-                    append("Imported ${result.tagsAdded} tags, ${result.filtersAdded} filters, ${result.tabsRestored} tabs")
-                    if (result.filtersSkipped > 0) {
-                        append(" (${result.filtersSkipped} duplicate filters skipped)")
-                    }
-                    if (result.accountsAdded > 0) {
-                        append("; ${result.accountsAdded} accounts")
-                    }
-                    if (result.messagesRestored > 0) {
-                        append("; restored state on ${result.messagesRestored} messages")
-                    }
-                    if (result.balancesRestored > 0) {
-                        append(" incl. ${result.balancesRestored} balances")
-                    }
-                    if (result.linkedTransactionsRestored > 0) {
-                        append("; ${result.linkedTransactionsRestored} linked transactions")
-                    }
-                    if (result.messagesUnmatched > 0) {
-                        append("; ${result.messagesUnmatched} messages not found on this device")
-                    }
-                }
-            } catch (e: Exception) {
-                e.message ?: "Import failed"
-            }
-            snackbarHostState.showSnackbar(message)
+        backupViewModel.import {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                stream.readBytes().decodeToString()
+            } ?: throw IllegalStateException("Could not read the selected file.")
         }
     }
     val categorizationExportLauncher = rememberLauncherForActivityResult(
@@ -209,6 +188,9 @@ fun SettingsScreen(
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
+            if (isBusy) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
             SettingsSectionLabel(text = "Appearance")
             SettingsCard {
                 Text(
@@ -247,7 +229,8 @@ fun SettingsScreen(
                         )
                         Text(
                             text = if (canUseAppLock) {
-                                "Require fingerprint or device lock to open Strings"
+                                "Require fingerprint or device lock to open Strings. " +
+                                    "Also blocks screenshots and hides the app preview in Recents."
                             } else {
                                 "Set up a screen lock on this device to use App lock"
                             },
@@ -289,20 +272,29 @@ fun SettingsScreen(
                 title = "Export data",
                 supportingText = "Save tags, filters, tabs, message states, and balances as a JSON backup",
                 icon = Icons.Default.FileUpload,
-                onClick = { exportLauncher.launch("strings-backup.json") }
+                onClick = {
+                    appLockController.expectTrustedActivityResult()
+                    exportLauncher.launch("strings-backup.json")
+                },
+                enabled = !isBusy
             )
             SettingsActionCard(
                 title = "Import data",
                 supportingText = "Restore everything from a Strings backup file",
                 icon = Icons.Default.FileDownload,
-                onClick = { importLauncher.launch(arrayOf("application/json")) }
+                onClick = {
+                    appLockController.expectTrustedActivityResult()
+                    importLauncher.launch(arrayOf("application/json"))
+                },
+                enabled = !isBusy
             )
             SettingsActionCard(
                 title = "Clear finance data",
                 supportingText = "Delete all transactions, accounts, and Finance tags. This can't be undone.",
                 icon = Icons.Default.CleaningServices,
                 onClick = { showClearFinanceConfirm = true },
-                isDestructive = true
+                isDestructive = true,
+                enabled = !isBusy
             )
             var advancedExpanded: Boolean by remember { mutableStateOf(false) }
             SettingsSectionLabel(text = "Advanced")
@@ -331,36 +323,32 @@ fun SettingsScreen(
                     SettingsActionCard(
                         title = "Export categorization (last 3 months)",
                         icon = Icons.Default.FileUpload,
-                        onClick = { categorizationExportLauncher.launch("strings-categorization.json") }
+                        onClick = {
+                            appLockController.expectTrustedActivityResult()
+                            categorizationExportLauncher.launch("strings-categorization.json")
+                        },
+                        enabled = !isBusy
                     )
                     SettingsActionCard(
                         title = "Recategorize (last 3 months)",
                         icon = Icons.Default.Autorenew,
-                        onClick = {
-                            coroutineScope.launch {
-                                val result = viewModel.recategorizeRecent()
-                                snackbarHostState.showSnackbar(
-                                    "Recategorized ${result.categorized} of ${result.scanned} messages"
-                                )
-                            }
-                        }
+                        onClick = { viewModel.recategorizeRecent() },
+                        enabled = !isBusy
                     )
                     SettingsActionCard(
                         title = "Export categorization (last 1 year)",
                         icon = Icons.Default.FileUpload,
-                        onClick = { categorizationExportLastYearLauncher.launch("strings-categorization-1y.json") }
+                        onClick = {
+                            appLockController.expectTrustedActivityResult()
+                            categorizationExportLastYearLauncher.launch("strings-categorization-1y.json")
+                        },
+                        enabled = !isBusy
                     )
                     SettingsActionCard(
                         title = "Recategorize (last 1 year)",
                         icon = Icons.Default.Autorenew,
-                        onClick = {
-                            coroutineScope.launch {
-                                val result = viewModel.recategorizeLastYear()
-                                snackbarHostState.showSnackbar(
-                                    "Recategorized ${result.categorized} of ${result.scanned} messages"
-                                )
-                            }
-                        }
+                        onClick = { viewModel.recategorizeLastYear() },
+                        enabled = !isBusy
                     )
                 }
             }
@@ -390,12 +378,7 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         showClearFinanceConfirm = false
-                        coroutineScope.launch {
-                            val removed = viewModel.clearFinanceData()
-                            snackbarHostState.showSnackbar(
-                                "Cleared $removed Finance tags + all transactions/accounts"
-                            )
-                        }
+                        viewModel.clearFinanceData()
                     }
                 ) {
                     Text("Clear data")
@@ -445,10 +428,12 @@ private fun SettingsActionCard(
     icon: ImageVector,
     onClick: () -> Unit,
     supportingText: String? = null,
-    isDestructive: Boolean = false
+    isDestructive: Boolean = false,
+    enabled: Boolean = true
 ) {
     Card(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh

@@ -10,6 +10,8 @@ import com.strings.app.data.local.db.MIGRATION_5_6
 import com.strings.app.data.local.db.MIGRATION_6_7
 import com.strings.app.data.local.db.MIGRATION_7_8
 import com.strings.app.data.local.db.MIGRATION_8_9
+import com.strings.app.data.local.db.MIGRATION_9_10
+import com.strings.app.data.local.db.RoomTransactionRunner
 import com.strings.app.data.local.db.StringsDatabase
 import com.strings.app.data.prefs.DataStoreBackupSettings
 import com.strings.app.data.prefs.SettingsDataStore
@@ -25,6 +27,7 @@ import com.strings.app.domain.repository.FilterRepository
 import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TagRepository
 import com.strings.app.domain.repository.TransactionRepository
+import com.strings.app.domain.repository.TransactionRunner
 import com.strings.app.notification.SmsNotifier
 import com.strings.app.util.DatabaseSeeder
 import kotlinx.serialization.json.Json
@@ -45,7 +48,7 @@ val dataModule = module {
             "strings_database"
         ).addMigrations(
             MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
-            MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
+            MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
         ).build()
     }
     single { get<StringsDatabase>().messageDao() }
@@ -55,6 +58,7 @@ val dataModule = module {
     single { get<StringsDatabase>().accountDao() }
     single { get<StringsDatabase>().accountSuggestionDao() }
     single { get<StringsDatabase>().transactionDao() }
+    single<TransactionRunner> { RoomTransactionRunner(get()) }
     single<MessageRepository> { MessageRepositoryImpl(get(), get(), get()) }
     single<TagRepository> { TagRepositoryImpl(get(), get()) }
     single<FilterRepository> { FilterRepositoryImpl(get(), get()) }
@@ -64,7 +68,7 @@ val dataModule = module {
     single { SmsContentReader(androidContext()) }
     single { ContactNameResolver(androidContext()) }
     single { SmsNotifier(androidContext()) }
-    single { DatabaseSeeder(get(), get(), get(), get(), get(), get()) }
+    single { DatabaseSeeder(get(), get(), get(), get()) }
     single { FilterDraftHolder() }
     single { WorkManager.getInstance(androidContext()) }
 }

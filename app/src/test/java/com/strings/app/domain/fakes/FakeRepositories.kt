@@ -14,6 +14,7 @@ import com.strings.app.domain.repository.FilterRepository
 import com.strings.app.domain.repository.MessageRepository
 import com.strings.app.domain.repository.TagRepository
 import com.strings.app.domain.repository.TransactionRepository
+import com.strings.app.domain.repository.TransactionRunner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -263,5 +264,14 @@ class FakeBackupSettings(
     override suspend fun getAppLockEnabled(): Boolean = appLockEnabled
     override suspend fun setAppLockEnabled(value: Boolean) {
         appLockEnabled = value
+    }
+}
+
+/** In-memory fakes have no transactions; the block simply runs. Counts calls for assertions. */
+class FakeTransactionRunner : TransactionRunner {
+    var transactionsStarted: Int = 0
+    override suspend fun <T> runInTransaction(block: suspend () -> T): T {
+        transactionsStarted++
+        return block()
     }
 }

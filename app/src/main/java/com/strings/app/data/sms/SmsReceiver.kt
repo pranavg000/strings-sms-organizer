@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
+import android.util.Log
 import com.strings.app.domain.model.Message
 import com.strings.app.domain.usecase.SyncSmsUseCase
 import kotlinx.coroutines.CoroutineScope
@@ -32,12 +33,21 @@ class SmsReceiver : BroadcastReceiver(), KoinComponent {
             deviceMessageId = null
         )
         val pendingResult = goAsync()
+        // Unstructured scope: an exception escaping here is uncaught and kills the
+        // process -- on EVERY incoming SMS if the cause is persistent (e.g. one bad
+        // filter row). Log and drop instead; the periodic sync re-imports the message.
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 syncSmsUseCase.ingest(message, notify = true)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to ingest incoming SMS from $sender", e)
             } finally {
                 pendingResult.finish()
             }
         }
+    }
+
+    private companion object {
+        const val TAG: String = "SmsReceiver"
     }
 }

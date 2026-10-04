@@ -57,27 +57,31 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE timestamp >= :since ORDER BY timestamp ASC")
     suspend fun getMessagesSince(since: Long): List<MessageEntity>
 
+    // Tag membership is checked with EXISTS instead of DISTINCT + JOIN: DISTINCT forces
+    // SQLite to materialize and dedup the whole joined result before ORDER BY/LIMIT can
+    // apply, while EXISTS lets it walk the (isTrashed, isArchived, timestamp) index and
+    // stop at the page boundary.
     @Query("""
-        SELECT DISTINCT m.* FROM messages m 
-        INNER JOIN message_tags mt ON m.id = mt.messageId 
-        WHERE mt.tagId = :tagId AND m.isTrashed = 0 AND m.isArchived = 0
+        SELECT m.* FROM messages m
+        WHERE m.isTrashed = 0 AND m.isArchived = 0
+          AND EXISTS (SELECT 1 FROM message_tags mt WHERE mt.messageId = m.id AND mt.tagId = :tagId)
         ORDER BY m.timestamp DESC
     """)
     fun getMessagesByTag(tagId: Long): Flow<List<MessageEntity>>
 
     @Query("""
-        SELECT DISTINCT m.* FROM messages m
-        INNER JOIN message_tags mt ON m.id = mt.messageId
-        WHERE mt.tagId IN (:tagIds) AND m.isTrashed = 0 AND m.isArchived = 0
+        SELECT m.* FROM messages m
+        WHERE m.isTrashed = 0 AND m.isArchived = 0
+          AND EXISTS (SELECT 1 FROM message_tags mt WHERE mt.messageId = m.id AND mt.tagId IN (:tagIds))
         ORDER BY m.timestamp DESC
     """)
     fun getMessagesByTags(tagIds: List<Long>): Flow<List<MessageEntity>>
 
     @Transaction
     @Query("""
-        SELECT DISTINCT m.* FROM messages m
-        INNER JOIN message_tags mt ON m.id = mt.messageId
-        WHERE mt.tagId IN (:tagIds) AND m.isTrashed = 0 AND m.isArchived = 0
+        SELECT m.* FROM messages m
+        WHERE m.isTrashed = 0 AND m.isArchived = 0
+          AND EXISTS (SELECT 1 FROM message_tags mt WHERE mt.messageId = m.id AND mt.tagId IN (:tagIds))
         ORDER BY m.timestamp DESC
     """)
     fun pagingMessagesByTags(tagIds: List<Long>): PagingSource<Int, MessageWithTagsRelation>

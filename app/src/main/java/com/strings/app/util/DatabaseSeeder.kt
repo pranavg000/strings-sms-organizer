@@ -1,7 +1,5 @@
 package com.strings.app.util
 
-import com.strings.app.data.local.db.dao.FilterDao
-import com.strings.app.data.local.db.dao.MessageDao
 import com.strings.app.data.local.db.dao.TabConfigDao
 import com.strings.app.data.local.db.dao.TagDao
 import com.strings.app.data.local.db.entity.TabConfigEntity
@@ -19,46 +17,96 @@ import com.strings.app.domain.repository.FilterRepository
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * Keeps the system tags (Inbox, OTP) and the first-run example template in place.
+ *
+ * Seeding is keyed on DATABASE state, never on the DataStore flag alone: every system tag
+ * is resolved by its stored id, then by name, and inserted only when genuinely absent.
+ * The DataStore and the Room DB are separate files that can fall out of sync (a truncated
+ * preferences file, a partial auto-backup restore), so this never deletes anything --
+ * a missing flag on a populated DB must not wipe the user's data, and a stale id on a
+ * fresh DB must not leave the Inbox tag dangling.
+ */
 class DatabaseSeeder(
-    private val messageDao: MessageDao,
     private val tagDao: TagDao,
     private val tabConfigDao: TabConfigDao,
-    private val filterDao: FilterDao,
     private val filterRepository: FilterRepository,
     private val settings: SettingsDataStore
 ) {
     private val mutex = Mutex()
 
+    private data class ResolvedTag(val id: Long, val created: Boolean)
+
     suspend fun setupFirstRun() {
         mutex.withLock {
-            if (settings.isFirstRunCompleted()) return
-            clearAllData()
-            val inboxTagId = tagDao.insertTag(
-                TagEntity(
-                    name = SystemTags.INBOX_NAME,
-                    color = "",
-                    icon = SystemTags.INBOX_ICON,
-                    sortOrder = 0,
-                    isSystemTag = true
+            val inbox: ResolvedTag = resolveInboxTag()
+            if (inbox.created) {
+                tabConfigDao.insertTabConfig(
+                    TabConfigEntity(tagId = inbox.id, position = 0, isVisible = true)
                 )
-            )
-            tabConfigDao.insertTabConfig(
-                TabConfigEntity(tagId = inboxTagId, position = 0, isVisible = true)
-            )
-            settings.setInboxTagId(inboxTagId)
-            val otpTagId = tagDao.insertTag(
-                TagEntity(
-                    name = SystemTags.OTP_NAME,
-                    color = "",
-                    icon = SystemTags.OTP_ICON,
-                    sortOrder = 1,
-                    isSystemTag = true
-                )
-            )
-            settings.setOtpTagId(otpTagId)
-            seedExampleTemplate()
-            settings.setFirstRunCompleted(true)
+            }
+            resolveOtpTag()
+            if (!settings.isFirstRunCompleted()) {
+                if (tagDao.getTagByName(EXAMPLE_SHOPPING_TAG_NAME) == null) {
+                    seedExampleTemplate()
+                }
+                settings.setFirstRunCompleted(true)
+            }
         }
+    }
+
+    /** Resolves the Inbox tag, recreating it if it has gone missing, and returns its id. */
+    suspend fun ensureInboxTagId(): Long = mutex.withLock { resolveInboxTag().id }
+
+    /** Resolves the OTP tag, recreating it if it has gone missing, and returns its id. */
+    suspend fun ensureOtpTagId(): Long = mutex.withLock { resolveOtpTag().id }
+
+    private suspend fun resolveInboxTag(): ResolvedTag {
+        val storedId: Long = settings.getInboxTagId()
+        val resolved: ResolvedTag = resolveSystemTag(
+            name = SystemTags.INBOX_NAME,
+            icon = SystemTags.INBOX_ICON,
+            sortOrder = INBOX_SORT_ORDER,
+            storedId = storedId
+        )
+        if (resolved.id != storedId) settings.setInboxTagId(resolved.id)
+        return resolved
+    }
+
+    private suspend fun resolveOtpTag(): ResolvedTag {
+        val storedId: Long = settings.getOtpTagId()
+        val resolved: ResolvedTag = resolveSystemTag(
+            name = SystemTags.OTP_NAME,
+            icon = SystemTags.OTP_ICON,
+            sortOrder = OTP_SORT_ORDER,
+            storedId = storedId
+        )
+        if (resolved.id != storedId) settings.setOtpTagId(resolved.id)
+        return resolved
+    }
+
+    /** Stored id -> existing tag by name -> fresh insert. Caller must hold [mutex]. */
+    private suspend fun resolveSystemTag(
+        name: String,
+        icon: String,
+        sortOrder: Int,
+        storedId: Long
+    ): ResolvedTag {
+        if (storedId > 0L && tagDao.getTagById(storedId) != null) {
+            return ResolvedTag(id = storedId, created = false)
+        }
+        val existing: TagEntity? = tagDao.getTagByName(name)
+        if (existing != null) return ResolvedTag(id = existing.id, created = false)
+        val newId: Long = tagDao.insertTag(
+            TagEntity(
+                name = name,
+                color = "",
+                icon = icon,
+                sortOrder = sortOrder,
+                isSystemTag = true
+            )
+        )
+        return ResolvedTag(id = newId, created = true)
     }
 
     /**
@@ -125,31 +173,9 @@ class DatabaseSeeder(
         )
     }
 
-    suspend fun ensureOtpTagId(): Long = mutex.withLock {
-        val storedId: Long = settings.getOtpTagId()
-        if (storedId > 0L && tagDao.getTagById(storedId) != null) return@withLock storedId
-        val existing: TagEntity? = tagDao.getTagByName(SystemTags.OTP_NAME)
-        val resolvedId: Long = existing?.id ?: tagDao.insertTag(
-            TagEntity(
-                name = SystemTags.OTP_NAME,
-                color = "",
-                icon = SystemTags.OTP_ICON,
-                sortOrder = 1,
-                isSystemTag = true
-            )
-        )
-        settings.setOtpTagId(resolvedId)
-        resolvedId
-    }
-
-    private suspend fun clearAllData() {
-        messageDao.deleteAllMessages()
-        filterDao.deleteAllFilters()
-        tagDao.deleteAllTags()
-        tabConfigDao.deleteAll()
-    }
-
     private companion object {
+        const val INBOX_SORT_ORDER: Int = 0
+        const val OTP_SORT_ORDER: Int = 1
         const val EXAMPLE_SHOPPING_TAG_NAME: String = "Example: Shopping"
         const val EXAMPLE_ORDERS_TAG_NAME: String = "Example: Orders"
         const val EXAMPLE_FILTER_NAME: String = "Example: Order updates"

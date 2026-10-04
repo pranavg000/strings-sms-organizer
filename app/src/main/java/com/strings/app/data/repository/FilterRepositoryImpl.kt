@@ -1,5 +1,6 @@
 package com.strings.app.data.repository
 
+import android.util.Log
 import com.strings.app.data.local.db.dao.FilterDao
 import com.strings.app.data.local.db.entity.FilterActionEntity
 import com.strings.app.data.local.db.entity.FilterEntity
@@ -68,16 +69,27 @@ class FilterRepositoryImpl(
         }
     }
 
+    /**
+     * Decoding is tolerant so one bad row can't take down every filter consumer (the
+     * Filters screen, the ingest pipeline, the sync worker). A condition tree that no
+     * longer decodes (e.g. an enum constant from a newer build) yields an empty,
+     * force-disabled filter; actions with an unknown type are dropped.
+     */
     private suspend fun assembleFilter(entity: FilterEntity): Filter {
-        val actions = filterDao.getActionsForFilter(entity.id)
+        val actions: List<FilterActionEntity> = filterDao.getActionsForFilter(entity.id)
+        val root: ConditionGroup? = runCatching {
+            json.decodeFromString<ConditionGroup>(entity.conditionTree)
+        }.onFailure {
+            Log.w(TAG, "Filter ${entity.id} '${entity.name}' has an undecodable condition tree; disabling", it)
+        }.getOrNull()
         return Filter(
             id = entity.id,
             name = entity.name,
             priority = entity.priority,
-            isEnabled = entity.isEnabled,
+            isEnabled = entity.isEnabled && root != null,
             createdAt = entity.createdAt,
-            root = json.decodeFromString<ConditionGroup>(entity.conditionTree),
-            actions = actions.map { it.toDomain() }
+            root = root ?: ConditionGroup(),
+            actions = actions.mapNotNull { it.toDomain() }
         )
     }
 
@@ -97,10 +109,20 @@ class FilterRepositoryImpl(
         targetTagId = targetTagId
     )
 
-    private fun FilterActionEntity.toDomain(): FilterAction = FilterAction(
-        id = id,
-        filterId = filterId,
-        actionType = ActionType.valueOf(actionType),
-        targetTagId = targetTagId
-    )
+    private fun FilterActionEntity.toDomain(): FilterAction? {
+        val type: ActionType = ActionType.fromStored(actionType) ?: run {
+            Log.w(TAG, "Filter $filterId has an unknown action type '$actionType'; skipping")
+            return null
+        }
+        return FilterAction(
+            id = id,
+            filterId = filterId,
+            actionType = type,
+            targetTagId = targetTagId
+        )
+    }
+
+    private companion object {
+        const val TAG: String = "FilterRepository"
+    }
 }

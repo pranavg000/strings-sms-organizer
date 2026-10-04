@@ -1,5 +1,6 @@
 package com.strings.app.data.repository
 
+import android.util.Log
 import com.strings.app.data.local.db.dao.AccountDao
 import com.strings.app.data.local.db.dao.AccountSuggestionDao
 import com.strings.app.data.local.db.dao.TransactionDao
@@ -24,28 +25,28 @@ class TransactionRepositoryImpl(
     private val transactionDao: TransactionDao
 ) : TransactionRepository {
     override fun getAllTransactions(): Flow<List<Transaction>> {
-        return transactionDao.getAllTransactions().map { entities -> entities.map { it.toDomain() } }
+        return transactionDao.getAllTransactions().map { entities -> entities.mapNotNull { it.toDomain() } }
     }
 
     override fun getTransactionsByAccount(accountId: Long): Flow<List<Transaction>> {
         return transactionDao.getTransactionsByAccount(accountId).map { entities ->
-            entities.map { it.toDomain() }
+            entities.mapNotNull { it.toDomain() }
         }
     }
 
     override fun getTransactionsByAccounts(accountIds: List<Long>): Flow<List<Transaction>> {
         return transactionDao.getTransactionsByAccounts(accountIds).map { entities ->
-            entities.map { it.toDomain() }
+            entities.mapNotNull { it.toDomain() }
         }
     }
 
     override fun getLedgerInRange(from: Long, to: Long): Flow<List<LedgerEntry>> {
-        return transactionDao.getLedgerInRange(from, to).map { rows -> rows.map { it.toDomain() } }
+        return transactionDao.getLedgerInRange(from, to).map { rows -> rows.mapNotNull { it.toDomain() } }
     }
 
     override fun getLedgerByAccountsInRange(accountIds: List<Long>, from: Long, to: Long): Flow<List<LedgerEntry>> {
         return transactionDao.getLedgerByAccountsInRange(accountIds, from, to).map { rows ->
-            rows.map { it.toDomain() }
+            rows.mapNotNull { it.toDomain() }
         }
     }
 
@@ -103,11 +104,11 @@ class TransactionRepositoryImpl(
     }
 
     override suspend fun getTransactionsForMessage(messageId: Long): List<Transaction> {
-        return transactionDao.getTransactionsForMessage(messageId).map { it.toDomain() }
+        return transactionDao.getTransactionsForMessage(messageId).mapNotNull { it.toDomain() }
     }
 
     override suspend fun getTransactionForMessage(messageId: Long): Transaction? {
-        return transactionDao.getTransactionsForMessage(messageId).firstOrNull()?.toDomain()
+        return transactionDao.getTransactionsForMessage(messageId).firstNotNullOfOrNull { it.toDomain() }
     }
 
     override suspend fun getTransactionById(transactionId: Long): Transaction? {
@@ -115,15 +116,15 @@ class TransactionRepositoryImpl(
     }
 
     override suspend fun getAllTransactionsOnce(): List<Transaction> {
-        return transactionDao.getAllTransactionsOnce().map { it.toDomain() }
+        return transactionDao.getAllTransactionsOnce().mapNotNull { it.toDomain() }
     }
 
     override suspend fun getTransactionsByAccountsOnce(accountIds: List<Long>): List<Transaction> {
-        return transactionDao.getTransactionsByAccountsOnce(accountIds).map { it.toDomain() }
+        return transactionDao.getTransactionsByAccountsOnce(accountIds).mapNotNull { it.toDomain() }
     }
 
     override suspend fun getTransactionsWithBalanceOnce(): List<Transaction> {
-        return transactionDao.getTransactionsWithBalance().map { it.toDomain() }
+        return transactionDao.getTransactionsWithBalance().mapNotNull { it.toDomain() }
     }
 
     override suspend fun insertTransaction(transaction: Transaction): Long {
@@ -159,11 +160,20 @@ class TransactionRepositoryImpl(
         transactionDao.deleteAll()
     }
 
+    /**
+     * Entity -> domain mapping is tolerant of unknown stored enum values (a constant from a
+     * newer build, a hand-edited DB) so one bad row can't crash every ledger and the ingest
+     * pipeline. Unknown account types fall back to SAVINGS, unknown origins to PARSED; a
+     * transaction whose type is unknown has no safe sign and is skipped.
+     */
     private fun AccountEntity.toDomain(): Account = Account(
         id = id,
         bankName = bankName,
         accountTail = accountTail,
-        accountType = AccountType.valueOf(accountType),
+        accountType = AccountType.fromStored(accountType) ?: run {
+            Log.w(TAG, "Account $id has unknown type '$accountType'; treating as SAVINGS")
+            AccountType.SAVINGS
+        },
         displayName = displayName,
         bankCode = bankCode,
         colorIndex = colorIndex,
@@ -183,24 +193,34 @@ class TransactionRepositoryImpl(
         isEnabled = isEnabled
     )
 
-    private fun TransactionWithDescription.toDomain(): LedgerEntry = LedgerEntry(
-        transaction = transaction.toDomain(),
-        messageDescription = messageDescription
-    )
+    private fun TransactionWithDescription.toDomain(): LedgerEntry? {
+        val domainTransaction: Transaction = transaction.toDomain() ?: return null
+        return LedgerEntry(transaction = domainTransaction, messageDescription = messageDescription)
+    }
 
-    private fun TransactionEntity.toDomain(): Transaction = Transaction(
-        id = id,
-        messageId = messageId,
-        accountId = accountId,
-        amount = amount,
-        type = TransactionType.valueOf(type),
-        balanceAfter = balanceAfter,
-        merchant = merchant,
-        transactionTime = transactionTime,
-        timestamp = timestamp,
-        rawMatch = rawMatch,
-        origin = TransactionOrigin.valueOf(origin)
-    )
+    private fun TransactionEntity.toDomain(): Transaction? {
+        val transactionType: TransactionType = TransactionType.fromStored(type) ?: run {
+            Log.w(TAG, "Transaction $id has unknown type '$type'; skipping row")
+            return null
+        }
+        val transactionOrigin: TransactionOrigin = TransactionOrigin.fromStored(origin) ?: run {
+            Log.w(TAG, "Transaction $id has unknown origin '$origin'; treating as PARSED")
+            TransactionOrigin.PARSED
+        }
+        return Transaction(
+            id = id,
+            messageId = messageId,
+            accountId = accountId,
+            amount = amount,
+            type = transactionType,
+            balanceAfter = balanceAfter,
+            merchant = merchant,
+            transactionTime = transactionTime,
+            timestamp = timestamp,
+            rawMatch = rawMatch,
+            origin = transactionOrigin
+        )
+    }
 
     private fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
         id = id,
@@ -215,4 +235,8 @@ class TransactionRepositoryImpl(
         rawMatch = rawMatch,
         origin = origin.name
     )
+
+    private companion object {
+        const val TAG: String = "TransactionRepository"
+    }
 }

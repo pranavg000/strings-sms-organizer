@@ -62,5 +62,10 @@ enum class ActionType {
     MARK_READ,
     SUPPRESS_NOTIFICATION,
     NOTIFY_SILENTLY,
-    STOP_PROCESSING
+    STOP_PROCESSING;
+
+    companion object {
+        /** Tolerant decoder for the `.name` string stored in Room; null for unknown values. */
+        fun fromStored(value: String): ActionType? = entries.firstOrNull { it.name == value }
+    }
 }

@@ -115,3 +115,21 @@ val MIGRATION_8_9: Migration = object : Migration(8, 9) {
         db.execSQL("ALTER TABLE messages ADD COLUMN description TEXT DEFAULT NULL")
     }
 }
+
+// The messages table had no indices, so every list page was a full scan + sort and every
+// ingest dedup a full scan. Names must match Room's generated `index_<table>_<cols>` form
+// or schema validation fails at open. deviceMessageId is intentionally NOT unique: a stray
+// duplicate on an existing install would make the migration itself fail.
+val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_timestamp` ON `messages` (`timestamp`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_messages_isTrashed_isArchived_timestamp` " +
+                "ON `messages` (`isTrashed`, `isArchived`, `timestamp`)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_deviceMessageId` ON `messages` (`deviceMessageId`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_messages_sender_timestamp` ON `messages` (`sender`, `timestamp`)"
+        )
+    }
+}
